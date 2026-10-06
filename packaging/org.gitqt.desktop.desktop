@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GitQt
+Comment=Desktop Git client
+Exec=gitqt
+Icon=org.gitqt.desktop
+Terminal=false
+Categories=Development;RevisionControl;
+StartupWMClass=GitQt

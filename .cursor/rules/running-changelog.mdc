@@ -1,0 +1,25 @@
+---
+description: Keep a running project changelog up to date
+alwaysApply: true
+---
+
+# Running Changelog
+
+- Maintain a top-level `CHANGELOG.md` for the project.
+- Update the changelog in every meaningful implementation session.
+- Do not treat work as complete if user-visible behavior, architecture, tests, or docs changed and the changelog was not updated.
+- Keep entries concise and grouped under `Unreleased` using headings like `Added`, `Changed`, `Fixed`, `Tests`, and `Docs`.
+- Mention test coverage additions or important regression fixes when they happen.
+- If a change is strictly internal and should not appear, say so explicitly in the task notes before skipping the changelog update.
+
+Example:
+
+```md
+## Unreleased
+
+### Added
+- Added repository dashboard and recent repository list.
+
+### Tests
+- Added unit tests for repository validation and dashboard state.
+```

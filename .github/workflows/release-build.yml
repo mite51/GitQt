@@ -1,0 +1,59 @@
+name: Build desktop distributions
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYINSTALLER_CONFIG_DIR: ${{ github.workspace }}/build/pyinstaller-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxcb-cursor0 libxkbcommon-x11-0
+      - name: Windows installer compiler
+        if: runner.os == 'Windows'
+        run: choco install innosetup --yes --no-progress
+      - run: python -m pip install '.[dev,release]'
+      - run: python -m pytest -q
+      - run: python scripts/build_release.py
+      - name: Smoke test the frozen application outside the source checkout
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then app="$GITHUB_WORKSPACE/dist/GitQt.app/Contents/MacOS/GitQt";
+          elif [ "$RUNNER_OS" = Windows ]; then app="$GITHUB_WORKSPACE/dist/GitQt/GitQt.exe";
+          else app="$GITHUB_WORKSPACE/dist/GitQt/GitQt"; fi
+          cd "$RUNNER_TEMP"
+          unset PYTHONPATH
+          "$app" --smoke-test
+      - run: python scripts/package_installers.py
+      - run: python -m build
+      - run: python scripts/checksum_artifacts.py
+      - name: Verify Linux installer payload
+        if: runner.os == 'Linux'
+        run: |
+          dpkg-deb --extract dist/releases/*.deb "$RUNNER_TEMP/gitqt-installed"
+          cd "$RUNNER_TEMP"
+          env -u PYTHONPATH "$RUNNER_TEMP/gitqt-installed/opt/gitqt/GitQt" --smoke-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GitQt-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/releases/*
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.sha256
+# This workflow only produces reviewable artifacts. Public releases require the
+# signing/notarization, corresponding-source, and platform acceptance gates in RELEASE.md.

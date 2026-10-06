@@ -1,0 +1,169 @@
+# Changelog
+
+All notable changes to `GitQt` should be documented in this file.
+
+## Unreleased
+
+### Added
+- Added standalone desktop builds with a bundled credential helper, Linux Debian packaging, Windows/macOS installer recipes, native build CI, application icon/version information, notices, checksums, and release/installation guidance. Linux artifacts are locally smoke-tested; Windows/macOS acceptance, signing, and publisher license/source audit remain open.
+- Added asynchronous repository discovery and creation, configurable initial branches, optional starter files, subfolder normalization, linked-worktree support, and clear bare/corrupt repository handling.
+- Added branch rename/upstream/tracking checkout and remote deletion; local/remote tag management, annotation inspection, guarded push/deletion, and annotated-tag recovery.
+- Corrected amend to preload messages, restore drafts, support message-only changes, warn about known published history, reject stale HEAD previews, and retain the original commit for recovery.
+- Added stable-tip history paging, bounded caches/diffs, root/merge and literal-path history handling, and a repeatable large-history benchmark; resolved Qt filter deprecations and existing lint findings.
+- Added atomic settings with corruption recovery, rotating sanitized timing logs, and local support-bundle export. Added 28 daily-driver regressions (258 tests total).
+- Added session-scoped background jobs with isolated snapshots, stale-result rejection, write serialization across linked worktrees, busy/navigation guards, and a scheduler race fix. Clone, working-tree, history, and repository commands now run off the UI thread.
+- Added streamed Git output, per-operation timeouts, cancellable transfers and connection tests, process-tree cleanup, secret redaction, and recovery of controls after interruption.
+- Added desktop Git/OpenSSH credential prompts and connection diagnostics using existing credential helpers/SSH agents, with key loading, retry, and cancellation. Credentials are not saved in application settings or logs.
+- Added remote configuration, publish/upstream choices, fetch/prune, pull strategies, and force-with-lease with a retained remote-tip preview and explicit expected-object lease.
+- Added automatic local-change refresh, dashboard-accessible preferences, Git version validation, identity editing, immediate crash-report preference application, and explicit restart guidance for Git-path changes.
+- Added a Recovery browser for retained history/stashes, file backups, removed-remote URLs, and HEAD reflog. Reset, branch deletion, and stash removal retain recovery data; hard reset refuses unsupported untracked/ignored-file recovery. Retained recovery refs are excluded from normal history.
+- Added 36 regression tests for session isolation, responsiveness, process/credential cancellation, setup, remote workflows, external refresh, and recovery across restart/garbage collection (230 tests passing in total).
+- Added a hunk picker and selected-line stage/unstage/discard actions, multi-file staging, and Stage All/Unstage All controls. Discard previews its impact, checks for stale content, and saves original-file backups with locations in the operation log.
+- Added persistent merge/rebase/cherry-pick/revert banners with Continue, Skip Commit, and Abort controls, operation-state revalidation, and background execution of recovery actions.
+- Bundled the Inter UI font (`gitqt.ui.fonts`, OFL 1.1) so the default UI font renders consistently without a system-wide install, and added a `UI font family` picker (and `AppSettings.ui_font_family`, settings v4) in the Settings dialog that updates the running app font live.
+- Moved the author avatar into the history graph as the commit node, wrapped with a lane-colored ring (plus a brighter halo for the HEAD commit) and drew a short leader line from the Branch/Tag column pill into the avatar so branches read as continuous rails.
+- Filled branch/tag pills with their lane color (with luminance-picked text color), stripped known remote prefixes from the displayed name, and appended a small cloud glyph that indicates the ref also exists on the server.
+- Added an `Age` column to the History table populated from `git log --pretty=format:%cr`, wired through `HistoryGraphRow.age` and the history model.
+- Added an "Affected files" panel to the commit details view with `A/M/D/R` status badges; selecting a file shows an inline per-file diff rendered through the existing `DiffView`.
+- Added a Settings dialog (gear button right of Push) covering the Git executable path, external diff/merge tools, the new "Split branch paths on /" toggle, and the crash-reports opt-in, persisted through `SettingsStore`.
+- Added a compact user chip (circular avatar + name) right of the Settings button, populated from the repository's commit author.
+- Added `AppSettings.split_branch_paths` (default on) and taught the sidebar to expand each `/` in a branch name into a nested tree group, with live rebuild when the setting is toggled.
+- Extended `HistoryService.get_graph` with a `refs` kwarg for multi-branch filtering (with ref-aware cache keys) and added `get_commit_files` / `get_commit_file_diff` helpers that drive the affected-files / inline diff panel.
+- Redesigned the History tab toward a GitKraken-style layout: new `Branch / Tag` column with ref pills, custom-painted graph delegate that draws colored lane lines and round commit-node icons (with a distinct ring for the HEAD commit), a dedicated hamburger menu for commit filter / branch filter / column visibility / reset-widths / refresh, resizable and movable columns with widths and hidden-column state persisted via `QSettings`, and a GitKraken-style commit context menu. The tab-level "History" heading is no longer duplicated inside the view body.
+- Extended `HistoryService.get_graph` with an optional `ref` kwarg that drops `--all` and scopes the log to a single ref for the branch-filter menu, with ref-aware TTL cache keys.
+- Added `CommitOperationsService` for cherry-pick, revert, merge, rebase, and reset (soft/mixed/hard) with typed success/failure results and stderr bubble-up, wired through the `AppServices` bootstrap.
+- Enabled the previously stubbed history context-menu entries (Cherry-pick, Revert, Merge, Rebase, Reset Soft/Mixed/Hard) with plain-language confirmation dialogs and recovery hints in `RepositoryView`.
+- Added parent-topology-based graph rendering: `HistoryService` now emits parent SHAs and author email; a new `build_lane_layout` computes per-row lane positions and edge segments; `GraphDelegate` draws multi-lane geometry (including octopus merges) from the computed layout instead of parsing `git log --graph` ASCII.
+- Added deterministic initials-based author avatars (`gitqt.ui.avatars`) rendered in a new `AuthorDelegate` for the History view's Author column, with palette selection keyed by author email for stable per-author colors.
+- Added "Checkout commit" flow in `RepositoryView` with a detached-HEAD confirmation dialog, plus "Create branch/tag at commit" handlers that reuse the existing dialogs pre-filled with the selected commit hash.
+- Implemented full dark-themed Qt Widgets UI with Catppuccin-inspired palette and Fusion style.
+- Added dashboard view with repository list, status indicators, empty state, and open/add/clone/remove actions.
+- Added repository workspace with left sidebar, tabbed content area, and collapsible operation log panel.
+- Added sidebar with tree-structured branches (local/remote), tags, stashes, and remotes with context menus for all CRUD actions.
+- Added working tree view with staged/unstaged file lists, file state filters, search, inline diff viewer with syntax coloring, and commit composer with summary/body validation.
+- Added history view with commit table, graph prefix rendering, commit search, and commit detail inspector showing refs, author, date, and message.
+- Added inline diff viewer widget rendering hunks with colored additions, deletions, context lines, and line numbers.
+- Added operation log panel with timestamped entries, level-colored formatting, and collapse/expand/clear controls.
+- Added Clone Repository dialog with URL, destination, branch, and submodule options.
+- Added Create Branch dialog with start point selection and checkout toggle.
+- Added Create Tag dialog supporting lightweight and annotated tags.
+- Added Create Stash dialog with message and untracked file options.
+- Added dangerous-action confirmation dialogs with plain-language impact and recovery hints for branch delete, stash pop, and stash drop.
+- Added keyboard shortcuts for Ctrl+O (open repository) and F5 (refresh).
+- Wired all view models (dashboard, working tree, references, remote operations) to their respective UI panels.
+- Bootstrapped the `gitqt` Python package with a placeholder Qt application shell and application service wiring.
+- Added settings persistence, log file initialization, and Git executable discovery services for the first milestone foundation.
+- Added a cross-platform GitHub Actions test workflow plus local Python project metadata, lint, and formatting configuration.
+- Added repository validation and recent-repository management services for dashboard add, open, and remove flows.
+- Added a repository dashboard view model with explicit empty, ready, and invalid states.
+- Added a Session 1 dashboard UI shell for opening, adding, removing, and tracking recent repositories.
+- Added a `GitRunner` abstraction with typed command results and explicit launch, timeout, and command-failure errors.
+- Added parser modules for Git porcelain status and unified diff hunks/line metadata for inline diff rendering foundations.
+- Added `StatusService` and `WorkingTreeViewModel` foundations for loading repository status, filtering file states, and selecting file diffs.
+- Added Session 3 staging actions in `StatusService` for stage-by-file, unstage-by-file, and hunk-level partial staging via generated Git apply patches.
+- Added Session 3 working tree view-model actions to stage and unstage the selected file with automatic status refresh and diff reselection.
+- Added Session 4 `CommitService` support for author metadata lookup, commit message validation, staged-change checks, and commit execution with typed results.
+- Added Session 4 working-tree commit composer state/actions for summary/body editing, validation feedback, and post-commit refresh behavior.
+- Added Session 5 `BranchService` for local/remote branch snapshots, branch create/checkout/delete actions, detached HEAD detection, and upstream tracking status with ahead/behind counts.
+- Added Session 5 `HistoryService` and history parser support for lightweight commit graph rows with commit metadata and ref decoration mapping.
+- Added ref parser utilities for local/remote ref mapping and ahead/behind parsing from `git rev-list --left-right --count`.
+- Added Session 6 `RemoteService` support for remote inspection plus fetch, pull, and push operations with typed success/failure results and progress events.
+- Added Session 6 `RemoteOperationsViewModel` state/actions for remote selection, progress message updates, and persistent operation-log entries.
+- Added Session 7 `StashService` for stash list/create/apply/pop/drop workflows with typed stash snapshots.
+- Added Session 7 `TagService` for tag listing and lightweight or annotated tag creation workflows.
+- Added Session 7 `ReferencesViewModel` state/actions for stash and tag workflows, including risky-action confirmations and recovery guidance cues.
+- Added Session 8 `ConflictService` to detect active merge/rebase conflict states, conflicted files, and recovery guidance messaging.
+- Added Session 8 `ExternalToolService` for validating external diff/merge tool paths and launching Git-backed external tool commands.
+- Added Session 8 working-tree conflict state fields for conflict banners, conflicted file lists, and action enablement flags for UI binding.
+- Added Session 9 in-memory refresh caching and repository-level cache invalidation in `StatusService` for faster repeated status and diff lookups.
+- Added Session 9 `WorkerScheduler` service to coalesce duplicate job requests, support cancellation, and suppress stale worker results.
+- Added Session 9 working-tree UI model load-state tracking (`idle`, `loading`, `ready`, `empty`, `error`) plus explicit clean-tree and load-failure messaging.
+- Added Session 9 operation-log retention policy in remote operations view-model state to prevent unbounded log growth.
+- Added versioned settings migration support with backward-compatible loading for legacy key names and malformed field sanitization.
+- Added a local-only `CrashReporter` service that captures unhandled exceptions into `crash-reports` files when enabled.
+
+### Fixed
+- Fixed staged/unstaged diff selection for partially staged files, added untracked-file previews and explicit unsupported/empty/binary metadata messages, and disabled unavailable partial actions.
+- Allowed staging conflict resolutions while keeping ordinary commits disabled until the interrupted operation is completed; retained operation detection after all conflicted files are staged, including linked worktrees.
+- Restored remote toolbar buttons after timeout, launch, worker, and submission failures, allowing retries.
+- Preserved CRLF and missing final newlines when applying partial text changes; used NUL-delimited status paths, quoted patch paths, and literal pathspecs for file actions.
+- Corrected disabled accent/danger button styling so unavailable actions no longer appear active.
+- Closed the remaining gap in the history graph's vertical rails by disabling per-cell clipping in `GraphDelegate` and extending "in"/"out" segments a few pixels past each row boundary so consecutive rows overlap at the seam regardless of antialiasing.
+- Fixed staging/unstaging files whose names contain spaces or special characters (git quotes these paths in porcelain output and the parser was not stripping the quotes).
+
+### Changed
+- Tightened the branch pill so the cloud glyph hugs the right edge: cropped the cloud SVG's empty viewBox padding, switched to a non-square 16x10 cloud rendering, and split pill horizontal padding into separate left/right values (smaller right inset when the cloud is shown).
+- History filter state (branch selection / search text) now persists across pull/fetch/push and other refreshes; the selection only resets when the repository path changes.
+- Branch filter menu replaced the "All branches" toggle with explicit `Select all` / `Select none` buttons plus a branch-name filter text box; the full branch list is still shown and filter/select actions act only on the currently visible entries. The menu stays open while toggling.
+- Alternating row backgrounds in the History table are now driven by the new `history_row_alpha` setting (default 0.5) instead of a hard-coded value; the slider in Settings updates the table stylesheet immediately.
+- Deduped the Branch-column avatar so it draws only on the last (oldest) commit of a same-author streak; intermediate rows now show a small lane-colored dot, which keeps runs of author activity legible without repeating the same avatar.
+- When a commit is selected and has no ref of its own, the Branch/Tag column now shows a dashed, softened pill labeled with the closest upstream ref on the same lane so users can see which branch the commit belongs to even if the tip has scrolled away.
+- Migrated `AppSettings` to version 3 with the new `split_branch_paths` and `history_row_alpha` fields (defaults `True` / `0.5`, legacy payloads migrated in place).
+- Rewrote the main window from scratch with screen-stack navigation between dashboard and repository workspace views.
+- Applied a global dark theme palette with consistent styling across all widgets, scrollbars, tabs, and menus.
+- Updated the main window flow to support a repository workspace screen and automatically resume the last valid repository at startup.
+- Updated dashboard ready-state wording to use proper singular/plural repository count messaging.
+- Added TTL caching with `invalidate_repository` hooks to `BranchService`, `HistoryService`, `RemoteService`, `StashService`, `TagService`, and `CommitService.get_author` to reduce redundant Git subprocesses on refreshes.
+- Deduplicated `BranchSnapshot` / `RemoteSnapshot` lookups in `RepositoryView._refresh_all` so a single refresh no longer spawns ~12–14 git subprocesses with duplicate work.
+- Added a conflict detection fast path that inspects the porcelain `WorkingTreeSnapshot` for `U*/AA/DD` markers before running `git diff --diff-filter=U`, eliminating a subprocess on every clean refresh.
+- Collapsed `CommitService.get_author` into a single `git config --get-regexp` invocation (plus cache), down from two sequential `config --get` calls.
+- Debounced the Working Tree and History search fields (200 ms) and short-circuited redundant keystrokes so filter changes no longer rebuild the full file lists / table on every character.
+- Moved Git subprocess work off the Qt main thread via a new `WorkerPool` (QThreadPool + WorkerScheduler bridge); `RepositoryView` refresh and remote (fetch/pull/push) handlers now submit through the pool with stale-result suppression and disabled-while-busy controls.
+- Replaced the History tab's `QTableWidget` with a `QTableView` backed by `HistoryTableModel` (`QAbstractTableModel`), a `GraphDelegate`, and a `HistoryFilterProxyModel` (`QSortFilterProxyModel`). Filtering now runs through the proxy and the graph column is ready for upcoming multi-lane edges and author avatars.
+- Lowered the initial history limit to 200 rows and added lazy pagination that appends another 200 rows via `WorkerPool` when the user scrolls near the bottom of the table.
+- Avoided full `QListWidget` rebuilds in the Working Tree view when the staged/unstaged entry sets have not actually changed (signature diff per list).
+
+### Tests
+- Added real-repository and Qt control regression coverage for hunk/line staging, partial unstage, discard confirmation/backups/stale previews, staged-side and new-file previews, unsupported partial actions, multi-file staging, conflict continuation/skip/abort, linked worktrees, first-commit staging, and remote failure cleanup including an actual worker thread.
+- Added settings tests covering `ui_font_family` defaults, round-trip persistence, the v3 -> v4 migration that backfills the field, and the blank-value fallback to `Inter`.
+- Added History view coverage for avatar deduping across same-author streaks, inherited-ref computation for selected commits without refs, `Select all` / `Select none` / filter-text-box branch-menu behavior, and the live `set_row_alpha` stylesheet update.
+- Added `history_row_alpha` settings tests covering default value, round-trip persistence, and clamping of out-of-range values.
+- Updated `test_history_table_model.py` for the 7-column layout (Age column added) and covered multi-branch ref selection, same-path selection persistence in `load_repository`, known-remote prefix stripping, and Age-column display.
+- Added `tests/test_sidebar.py` asserting branch-path splitting when enabled, flat display when disabled, and live rebuild when the setting is toggled.
+- Extended `tests/test_graph_layout.py` with a vertical-seam regression guard: consecutive linear rows must share lane and color across their `out`/`in` segment boundary.
+- Extended `tests/test_history_parser.py` for the new `age` (`%cr`) and full-commit-hash (`%H`) fields, including defaults when the extra fields are absent.
+- Extended `tests/test_history_service.py` with a `refs=[…]` multi-ref query (proving the ref filter narrows the log) and a `get_commit_files` test covering add/modify/delete detection via `diff-tree --name-status`.
+- Extended `tests/test_settings.py` to cover the new `split_branch_paths` default/round-trip and v2→v3 payload migration.
+- Added `test_history_table_model.py` coverage for the new GitKraken-style column layout (`Branch / Tag`, `Graph`, `Message`, `Author`, `Date`, `Hash`), header labels, branch-column primary-ref selection, column visibility toggling, and ref collection for the branch filter menu. Added `HistoryService` tests verifying that `get_graph(ref=…)` drops `--all` and appends the ref as the log revision, and that the TTL cache key is ref-specific.
+- Added `test_commit_operations.py` covering `CommitOperationsService` cherry-pick/revert/merge/rebase/reset command construction and stderr propagation on failure.
+- Added `test_graph_layout.py` covering lane-building semantics for linear, merge, and fork-then-collapse topologies, and color-lane persistence for long-lived lanes.
+- Added `test_avatars.py` covering initials extraction edge cases (two-word, single-word, email-only, empty) and deterministic color selection per author.
+- Extended `test_history_parser.py` for parent-hash and author-email extraction (including backward-compatible parsing when the parent field is absent), and extended `test_history_service.py` to assert merge-parent capture and author-email population end-to-end.
+- Added unit tests covering settings load/save behavior, Git discovery success and failure, and bootstrap service initialization.
+- Added unit tests for repository validation, recent repository persistence/reordering, and dashboard state transitions.
+- Added unit tests for status parser coverage across modified/added/deleted/untracked states and rename normalization.
+- Added unit tests for unified diff hunk parsing with line number metadata and working-tree selection/filter behavior.
+- Added temporary-repository service tests covering stage, unstage, and single-hunk partial staging behavior.
+- Added patch-generation tests for hunk-to-unified-diff rendering and view-model state refresh tests after staging actions.
+- Added Session 4 unit tests for commit message validation, commit success/failure flows, empty-commit warnings, and working-tree post-commit refresh actions.
+- Added Session 5 branch-operation service tests for branch create/checkout/delete flows, detached HEAD state handling, and upstream ahead/behind tracking.
+- Added Session 5 parser tests for ref mapping and commit-history graph transformation across linear and merge-style commit layouts.
+- Added Session 5 history-service tests using temporary repositories to verify graph row loading for representative branching commit topologies.
+- Added Session 6 remote-service tests covering command orchestration, remote URL inspection, and fetch/pull/push error-category mapping.
+- Added Session 6 view-model tests covering progress updates, operation-log behavior, and remote-selection guards.
+- Added Session 7 service tests covering stash and tag command orchestration plus temporary-repository stash/tag workflows.
+- Added Session 7 view-model tests covering confirmation state, recovery hint messaging, and repository refresh behavior after stash/tag operations.
+- Added Session 8 conflict-service tests using temporary repositories to validate merge and rebase conflict detection.
+- Added Session 8 external-tool validation and launch tests for configured diff/merge tooling behavior.
+- Added Session 8 working-tree view-model tests for conflict banners, disabled actions, recovery messaging, and external tool launch actions.
+- Added Session 9 status-service cache and invalidation tests to verify refresh policy behavior.
+- Added Session 9 worker scheduler tests for coalescing, cancellation, and stale-result suppression semantics.
+- Added Session 9 working-tree UI-state tests for loading, empty, and error-state transitions.
+- Added Session 9 remote-operation log retention test coverage for bounded operation history behavior.
+- Added Session 10 settings migration and malformed-settings regression tests to keep startup resilient with legacy or invalid config files.
+- Added a Session 10 crash-report writer test and a packaging metadata smoke check for the console entry point.
+- Added dashboard message regression tests for singular and plural repository-count text in ready state.
+- Added `test_service_caches.py` covering TTL cache hits, invalidation, and force-refresh behavior for the branch/history/remote/stash/tag services and `CommitService.get_author`.
+- Added `test_conflict_service_fast_path.py` to verify `ConflictService.detect_from_snapshot` skips the `git diff --diff-filter=U` subprocess on a clean porcelain snapshot and falls back when conflicts are indicated.
+- Added `test_worker_pool.py` covering `ImmediateWorkerPool` result delivery, exception-to-`WorkerError` mapping, coalescing of duplicate keys, stale-result suppression, and explicit cancellation.
+- Added `test_history_table_model.py` covering `HistoryTableModel` row/column access, `GRAPH_ROW_ROLE` structured payload, `HistoryFilterProxyModel` filtering across summary/author/hash/refs, and incremental `append_rows` insertion signals.
+
+### Docs
+- Documented staging and conflict controls plus discard-backup recovery in `README.md`, and recorded delivery-step-1 progress and remaining limitations in `TechDebt.md`.
+- Added `TechDebt.md` with a prioritized review of incomplete workflows and missing desktop Git-client features, implementation evidence, completion criteria, and GitKraken comparison references.
+- Added initial product requirements document with product scope, architecture direction, delivery sessions, and testing strategy.
+- Added a project rule to keep this changelog updated during future implementation sessions.
+- Added a technical architecture document aligned with the current Python package layout and planned Git client service boundaries.
+- Added low-fidelity UX wireframes for the dashboard, repository workspace, and history view flows.
+- Added `CONTRIBUTING.md` with setup, test/lint workflow, changelog discipline, and crash-report privacy guidance.
+- Updated `README.md` with crash-report behavior and contributor-guide link.
