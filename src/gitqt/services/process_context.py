@@ -18,7 +18,9 @@ def redact(text: str, context=None) -> str:
             if secret:
                 text = text.replace(secret, "[redacted]")
     text = re.sub(r"(https?://)[^\s/@]+@", r"\1[redacted]@", text)
-    return re.sub(r"(?i)(authorization:|token[=:]|password[=:])\s*\S+", r"\1 [redacted]", text)
+    # Headers include an authentication scheme followed by the actual secret.
+    text = re.sub(r"(?im)(\b(?:proxy-)?authorization:)\s*[^\r\n]+", r"\1 [redacted]", text)
+    return re.sub(r"(?i)(token[=:]|password[=:])\s*\S+", r"\1 [redacted]", text)
 
 
 @dataclass

@@ -4,8 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    timeout-minutes: 20
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -34,3 +42,7 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+      - name: Check Python source
+        if: runner.os == 'Linux' && matrix.python-version == '3.12'
+        run: ruff check .

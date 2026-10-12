@@ -5,6 +5,16 @@ All notable changes to `GitQt` should be documented in this file.
 ## Unreleased
 
 ### Added
+- Fixed activation callbacks surviving destroyed views, draft replacement during model switching, rename preview/unstage, and recovery before the initial commit.
+- Protected external merge from unsafe filename expansion and hard reset from unbacked submodule data loss; added real-repository regressions.
+- Added Windows Job Object ownership before command execution, bounded descendant cleanup, and native Windows regression tests; native execution remains a release gate.
+- Hardened release archives, installer validation, final artifact checksums, and CI install/reinstall/removal checks. Same-version reinstall does not establish upgrade compatibility.
+- Added targeted P1 acceptance coverage for rename preview and whole-rename unstage, mode-only/submodule boundaries, recovery before an initial commit, reopened operation controls, Recovery-browser restoration, application-activation refresh, and repository-model draft isolation.
+- Added worker-lifecycle regressions for completed-key cleanup, failed-submission retry, and suppression of late errors from superseded requests.
+- Added real-UI remote acceptance for add/edit/remove, first publish with upstream, prune, and fast-forward-only/merge/rebase pull choices.
+- Added first-run acceptance for missing and unsupported Git while Preferences, Commit Identity, and Connection Setup remain accessible.
+- Added local authentication acceptance using a rejecting HTTP endpoint with token retry and a real encrypted SSH key unlocked through desktop askpass, plus expanded prompt redaction, capability cleanup, and descendant-process timeout coverage. Real hosting-provider and platform-keychain acceptance remains pending.
+- Reconciled TD-01 through TD-12 status and release evidence. The combined suite passes 328 tests (70 more than the 258-test baseline), with three native Windows tests skipped on Linux; repository-wide lint and formatting pass.
 - Added standalone desktop builds with a bundled credential helper, Linux Debian packaging, Windows/macOS installer recipes, native build CI, application icon/version information, notices, checksums, and release/installation guidance. Linux artifacts are locally smoke-tested; Windows/macOS acceptance, signing, and publisher license/source audit remain open.
 - Added asynchronous repository discovery and creation, configurable initial branches, optional starter files, subfolder normalization, linked-worktree support, and clear bare/corrupt repository handling.
 - Added branch rename/upstream/tracking checkout and remote deletion; local/remote tag management, annotation inspection, guarded push/deletion, and annotated-tag recovery.

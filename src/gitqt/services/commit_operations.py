@@ -117,7 +117,11 @@ class CommitOperationsService:
         mode: ResetMode,
     ) -> CommitOperationResult:
         flag = f"--{mode.value}"
-        return self._run(["reset", flag, commit_hash], repository_path, f"Reset ({mode.value})")
+        return self._run(
+            ["reset", flag, "--no-recurse-submodules", commit_hash],
+            repository_path,
+            f"Reset ({mode.value})",
+        )
 
     def resolve_operation(
         self, repository_path: str | Path, operation: str, action: str

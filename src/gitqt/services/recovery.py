@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from gitqt.services.git import GitCommandFailure
 from gitqt.services.status import StatusService
 
 
@@ -35,6 +36,14 @@ class RecoveryService:
 
     def before_reset(self, repository, *, hard=False):
         if hard:
+            index = self.runner.run(["ls-files", "--stage", "-z"], cwd=repository).stdout
+            tree = self.runner.run(["ls-tree", "-r", "-z", "HEAD"], cwd=repository).stdout
+            if any(record.startswith("160000 ") for record in (index + "\0" + tree).split("\0")):
+                raise ValueError(
+                    "Hard reset is unavailable in repositories containing submodules. GitQt "
+                    "cannot yet back up submodule worktrees. Use a soft or mixed reset, or "
+                    "manage this repository with an external Git tool."
+                )
             untracked = self.runner.run(
                 ["ls-files", "--others", "--exclude-standard", "-z"], cwd=repository
             ).stdout
@@ -90,6 +99,13 @@ class RecoveryService:
                 )
             except (OSError, ValueError, KeyError):
                 continue
+        try:
+            self.runner.run(["rev-parse", "--verify", "--quiet", "HEAD"], cwd=repository)
+        except GitCommandFailure as exc:
+            if exc.result.exit_code == 1:
+                # File backups are useful even before the first commit creates HEAD.
+                return entries
+            raise
         log = self.runner.run(["reflog", "--format=%H%x09%gs", "-n", "100"], cwd=repository).stdout
         entries.extend(
             RecoveryEntry("commit", oid, f"Reflog: {message}")

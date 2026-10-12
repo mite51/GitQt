@@ -13,6 +13,7 @@ python scripts/build_release.py
 python scripts/package_installers.py
 python -m build
 python scripts/checksum_artifacts.py
+python scripts/checksum_artifacts.py --verify
 ```
 
 For Linux headless builds/tests, set `QT_QPA_PLATFORM=offscreen`. For normal use, leave it unset. Artifacts are written to `dist/releases/`; source archives and wheels are written to `dist/`. Keep the entire portable application directory together. The bundle contains Python, Qt, plugins, fonts, icons, and a separate credential helper. Git and SSH remain system tools. The frozen launcher resets inherited loader paths before calling external Git. See [PyInstaller's external-program guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#launching-external-programs-from-the-frozen-application).
@@ -29,8 +30,30 @@ Settings, logs, and local crash reports live separately under `~/.config/GitQt` 
 
 ## Required release acceptance
 
+Current evidence is deliberately separated from pending acceptance:
+
+| Gate | Linux | Windows | macOS |
+| --- | --- | --- | --- |
+| Source tests | 328 passed; 3 native Windows tests skipped locally | Native CI job configured; current branch result pending | Native CI job configured; current branch result pending |
+| Frozen portable smoke test | Passed locally outside the checkout | Recipe and CI command present; native acceptance pending | Recipe and CI command present; native acceptance pending |
+| Installer payload/lifecycle | Isolated-root Debian install, same-version reinstall, packaged smoke, and removal passed locally; clean-machine and old-to-new upgrade checks remain pending | Inno Setup recipe present; clean-machine lifecycle pending | DMG recipe present; clean-machine lifecycle pending |
+| Real provider credentials and platform helper/keychain | Pending | Pending | Pending |
+| Publisher signature | No accepted publisher signature recorded | Authenticode signing/verification pending | Developer ID signing, notarization, stapling, and verification pending |
+| Corresponding source and dependency notices | Automated inventory only; publisher audit pending | Native-library/notices audit pending | Native-library/notices audit pending |
+
+The local source acceptance command is:
+
+```sh
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
+```
+
+The latest local Linux release verification used system Python 3.12.3, PyInstaller 6.22.3, PySide6 6.12.0, Git 2.43.0, and glibc 2.39 on Ubuntu 24.04 x86_64. The 328 source tests passed with three native Windows tests skipped. The frozen directory and the application installed under a disposable Debian package root both passed `--version` and `--smoke-test` outside the checkout with `PYTHONPATH` unset. The package was then removed from that isolated root while a settings sentinel remained. This does not install or remove the package in the build host's package database.
+
+The release workflow performs the documented build commands above, then runs the frozen executable from the runner's temporary directory with `PYTHONPATH` unset. CI also exercises Debian install/reinstall/removal under an isolated package root, Windows per-user installer/reinstaller/uninstaller, and macOS application copy/recopy/removal with retained-settings checks. These are same-version reinstall checks; upgrading from an older version remains a separate gate. A successful recipe or CI upload is review evidence; it does not satisfy the clean-machine, provider, signing, or publisher-audit gates below.
+
 - Run the native CI matrix and launch on clean machines without Python or Qt installed, with Git installed separately. Exercise real desktop rendering under Linux X11/Wayland, Windows, and macOS; test paths containing spaces and non-ASCII characters. Validate install, upgrade, uninstall, launcher icons, and retained settings.
 - Run the packaged executable with `--smoke-test` from outside the source checkout with `PYTHONPATH` unset. It creates a temporary repository and verifies Git, window rendering, fonts, icons, and an actual Git credential request through the bundled helper. Its credential test uses only localhost and fake credentials. On Linux, also extract the `.deb` and run its contained executable. `--version` provides the application version.
+- Execute the native Windows process tests: commands are assigned to a Job Object before they start, and owned descendants are cleaned up on timeout, cancellation, and completion. Pre-existing credential helpers/agents are not owned. Portable mock tests do not establish native behavior.
 - Verify real HTTPS/SSH hosting-provider authentication, locked keys/keychains, cancellation, and Git minimum-version compatibility on each platform. Test merge details with the supported minimum Git version; the implementation uses the [Git 2.30 first-parent diff options](https://git-scm.com/docs/git-log/2.30.0#_diff_formatting).
 - For macOS distribution, build with `GITQT_CODESIGN_IDENTITY` set to the publisher's Developer ID, verify nested executables/libraries, notarize the final application/DMG with the publisher's Apple credentials, and staple/validate the ticket. For Windows, Authenticode-sign the application/helper and final installer with the publisher's certificate. Validate signatures on clean hosts. No credentials or certificates belong in the repository. Recompute checksums after signing/notarization.
 - Include this project's corresponding source archive and build scripts, dependency versions, `LICENSE`, `THIRD_PARTY_NOTICES.md`, and matching notices/source for bundled dependencies. Audit the actual Qt plugins and native libraries for each platform before public distribution. Generic upstream URLs and the automated wheel-license inventory alone do not fulfill a complete corresponding-source release.

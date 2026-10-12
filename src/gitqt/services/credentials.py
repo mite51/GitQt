@@ -19,18 +19,31 @@ from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit
 from gitqt.services.process_context import current_context, redact
 
 
+class CredentialEnvironment(dict):
+    """One command's bridge capability; revoke it as soon as the command ends."""
+
+    def __init__(self, values, close):
+        super().__init__(values)
+        self.close = close
+
+
 class CredentialRequest:
-    def __init__(self, prompt, context):
+    def __init__(self, prompt, context, revoked=None):
         self.prompt = prompt
         self.context = context
         self.done = threading.Event()
         self.answer = None
         self.expires = time.monotonic() + 600
+        self.revoked = revoked or threading.Event()
 
     def expired(self):
-        return time.monotonic() > self.expires or (
-            self.context is not None
-            and (self.context.cancel.is_set() or self.context.finished.is_set())
+        return (
+            self.revoked.is_set()
+            or time.monotonic() > self.expires
+            or (
+                self.context is not None
+                and (self.context.cancel.is_set() or self.context.finished.is_set())
+            )
         )
 
 
@@ -42,6 +55,7 @@ class CredentialBroker(QObject):
         self.requested.connect(self._prompt)
         self._tokens = {}
         self._lock = threading.Lock()
+        self._closed = False
         self._temporary = tempfile.TemporaryDirectory(prefix="gitqt-askpass-")
         client = Path(__file__).with_name("askpass_client.py")
         self._helper = Path(self._temporary.name) / (
@@ -70,13 +84,19 @@ class CredentialBroker(QObject):
                 self.connection.settimeout(610)
                 try:
                     payload = json.loads(self.rfile.readline(8192))
+                    if not isinstance(payload, dict) or not isinstance(payload.get("token"), str):
+                        return
                     with broker._lock:
                         if payload.get("token") not in broker._tokens:
                             return
-                        context, expiry = broker._tokens[payload["token"]]
+                        context, expiry, revoked = broker._tokens[payload["token"]]
                         if expiry <= time.monotonic():
                             return
-                    request = CredentialRequest(str(payload.get("prompt", "Credential")), context)
+                    request = CredentialRequest(
+                        str(payload.get("prompt", "Credential")), context, revoked
+                    )
+                    if request.expired():
+                        return
                     broker.requested.emit(request)
                     while not request.done.wait(0.1):
                         if request.expired():
@@ -100,21 +120,33 @@ class CredentialBroker(QObject):
 
     def environment(self):
         token = secrets.token_urlsafe(32)
+        revoked = threading.Event()
         with self._lock:
+            if self._closed:
+                raise OSError("The authentication service is closed. Restart GitQt.")
             self._tokens = {
                 key: value
                 for key, value in self._tokens.items()
                 if value[1] > time.monotonic() and not (value[0] and value[0].finished.is_set())
             }
-            self._tokens[token] = (current_context(), time.monotonic() + 610)
-        return {
-            "GIT_ASKPASS": str(self._helper),
-            "SSH_ASKPASS": str(self._helper),
-            "SSH_ASKPASS_REQUIRE": "force",
-            "GIT_TERMINAL_PROMPT": "0",
-            "GITQT_ASKPASS_PORT": str(self._server.server_address[1]),
-            "GITQT_ASKPASS_TOKEN": token,
-        }
+            self._tokens[token] = (current_context(), time.monotonic() + 610, revoked)
+
+        def release():
+            revoked.set()
+            with self._lock:
+                self._tokens.pop(token, None)
+
+        return CredentialEnvironment(
+            {
+                "GIT_ASKPASS": str(self._helper),
+                "SSH_ASKPASS": str(self._helper),
+                "SSH_ASKPASS_REQUIRE": "force",
+                "GIT_TERMINAL_PROMPT": "0",
+                "GITQT_ASKPASS_PORT": str(self._server.server_address[1]),
+                "GITQT_ASKPASS_TOKEN": token,
+            },
+            release,
+        )
 
     @Slot(object)
     def _prompt(self, request):
@@ -123,9 +155,12 @@ class CredentialBroker(QObject):
             return
         dialog = QInputDialog(QApplication.activeWindow())
         dialog.setWindowTitle("Git Authentication")
-        dialog.setLabelText(redact(request.prompt))
-        public_input = any(
-            word in request.prompt.lower() for word in ("username", "yes/no", "fingerprint")
+        dialog.setLabelText(redact(request.prompt, request.context))
+        prompt = request.prompt.lstrip().lower()
+        # A username or key filename can itself contain "username" or "fingerprint".
+        # Only known public prompt forms should disable password masking.
+        public_input = prompt.startswith("username") or (
+            prompt.startswith("are you sure") and "yes/no" in prompt
         )
         dialog.setTextEchoMode(
             QLineEdit.EchoMode.Normal if public_input else QLineEdit.EchoMode.Password
@@ -146,6 +181,13 @@ class CredentialBroker(QObject):
         dialog.deleteLater()
 
     def close(self):
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            for _, _, revoked in self._tokens.values():
+                revoked.set()
+            self._tokens.clear()
         self._server.shutdown()
         self._server.server_close()
         self._temporary.cleanup()

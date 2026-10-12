@@ -366,8 +366,13 @@ class WorkingTreeView(QWidget):
             self._amend_btn.blockSignals(True)
             self._amend_btn.setChecked(False)
             self._amend_btn.blockSignals(False)
+            self._summary_input.blockSignals(True)
+            self._body_input.blockSignals(True)
+            self._summary_input.setMaxLength(72)
             self._summary_input.setText(vm.state.commit_summary)
             self._body_input.setPlainText(vm.state.commit_body)
+            self._summary_input.blockSignals(False)
+            self._body_input.blockSignals(False)
             self._last_staged_signature = None
             self._last_unstaged_signature = None
         self._view_model = vm

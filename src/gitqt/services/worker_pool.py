@@ -96,7 +96,11 @@ class WorkerPool(QObject):
         signals = _WorkerSignals()
         signals.result_ready.connect(self._on_result_ready, Qt.ConnectionType.QueuedConnection)
         runnable = _WorkerRunnable(self, task, signals)
-        self._thread_pool.start(runnable)
+        try:
+            self._thread_pool.start(runnable)
+        except BaseException:
+            self.cancel(task)
+            raise
         return task
 
     def cancel(self, task: ScheduledWorkerTask) -> bool:
@@ -114,13 +118,18 @@ class WorkerPool(QObject):
     @Slot(object)
     def _on_result_ready(self, result: WorkerExecutionResult) -> None:
         callback = self._callbacks.pop(result.operation_id, None)
-        if callback is None:
-            return
-        if not result.should_apply or not self._scheduler.is_current(
-            result.operation_id, result.key
-        ):
-            return
-        callback(result)
+        try:
+            if callback is None:
+                return
+            if not result.should_apply or not self._scheduler.is_current(
+                result.operation_id, result.key
+            ):
+                return
+            callback(result)
+        finally:
+            # Session generations and mutation IDs produce unique keys. Retain
+            # identities only until delivery, and never remove a newer request.
+            self._scheduler.forget(result.operation_id, result.key)
 
 
 class ImmediateWorkerPool:
@@ -153,12 +162,17 @@ class ImmediateWorkerPool:
                 should_apply=True,
                 value=WorkerError(exception=exc),
             )
-        if result.should_apply:
-            on_result(result)
+        try:
+            if result.should_apply and self._scheduler.is_current(task.operation_id, key):
+                on_result(result)
+        finally:
+            self._scheduler.forget(task.operation_id, key)
         return task
 
     def cancel(self, task: ScheduledWorkerTask) -> bool:
-        return self._scheduler.cancel(task)
+        cancelled = self._scheduler.cancel(task)
+        self._scheduler.forget(task.operation_id, task.key)
+        return cancelled
 
     def wait_for_done(self, timeout_ms: int = -1) -> bool:  # noqa: ARG002
         return True

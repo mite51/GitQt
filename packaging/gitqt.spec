@@ -6,6 +6,9 @@ from PyInstaller.utils.hooks import collect_data_files
 
 root = Path(SPECPATH).parent
 identity = os.environ.get("GITQT_CODESIGN_IDENTITY")
+app_version = os.environ.get("GITQT_VERSION")
+if not app_version:
+    raise RuntimeError("GITQT_VERSION must be supplied by scripts/build_release.py")
 data = collect_data_files("gitqt", includes=["ui/fonts/*", "ui/icons/*"])
 data += [(str(root / name), ".") for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "README.md", "RELEASE.md")]
 data += [(str(root / "licenses"), "licenses"), (str(root / "build" / "dependency-notices"), "licenses/dependencies")]
@@ -19,5 +22,5 @@ helper = EXE(PYZ(h.pure), h.scripts, [], exclude_binaries=True, name="GitQt-askp
 folder = COLLECT(main, helper, a.binaries, a.datas, h.binaries, h.datas, name="GitQt", upx=False)
 if sys.platform == "darwin":
     app = BUNDLE(folder, name="GitQt.app", icon=str(root / "build/gitqt.icns"),
-                 bundle_identifier="org.gitqt.desktop", version="0.1.0",
+                 bundle_identifier="org.gitqt.desktop", version=app_version,
                  info_plist={"NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication"})

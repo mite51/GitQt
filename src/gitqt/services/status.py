@@ -72,9 +72,10 @@ class StatusService:
         self.invalidate_repository(repository_path)
 
     def unstage_file(self, repository_path: str | Path, file_path: str) -> None:
+        paths = self._staged_paths(repository_path, file_path)
         try:
             self._runner.run(
-                ["restore", "--staged", "--", file_path],
+                ["restore", "--staged", "--", *paths],
                 cwd=repository_path,
                 env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
             )
@@ -87,6 +88,22 @@ class StatusService:
                 env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
             )
         self.invalidate_repository(repository_path)
+
+    def _staged_paths(self, repository_path: str | Path, file_path: str) -> list[str]:
+        """A staged rename belongs to both paths when reviewing or unstaging it."""
+        raw = self._runner.run(
+            ["status", "--porcelain", "-z", "--untracked-files=no"], cwd=repository_path
+        ).stdout
+        records = iter(raw.split("\0"))
+        for record in records:
+            if len(record) < 4:
+                continue
+            xy, destination = record[:2], record[3:]
+            if "R" in xy or "C" in xy:
+                source = next(records, "")
+                if xy[0] == "R" and destination == file_path and source:
+                    return [source, destination]
+        return [file_path]
 
     def get_diff(
         self,
@@ -115,7 +132,8 @@ class StatusService:
         args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"]
         if staged:
             args.append("--staged")
-        args.extend(["--", file_path])
+        paths = self._staged_paths(repository_path, file_path) if staged else [file_path]
+        args.extend(["--", *paths])
         try:
             raw = self._runner.run(
                 args,

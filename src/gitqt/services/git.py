@@ -13,6 +13,7 @@ from threading import Event, Thread
 from typing import Callable
 
 from gitqt.services.process_context import current_context, redact
+from gitqt.services.windows_process import owned_windows_process
 
 
 class GitNotFoundError(RuntimeError):
@@ -71,7 +72,7 @@ class GitLocator:
     def discover(self, explicit_path: str | Path | None = None) -> GitExecutable:
         if explicit_path:
             candidate = Path(explicit_path)
-            if candidate.exists() and os.access(candidate, os.X_OK):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
                 return GitExecutable(path=str(candidate))
             raise GitNotFoundError(f"Configured Git executable is not usable: {candidate}")
 
@@ -115,10 +116,7 @@ class GitRunner:
                 merged_env.pop("LD_LIBRARY_PATH", None)
             else:
                 merged_env["LD_LIBRARY_PATH"] = original
-        if self.credential_environment is not None:
-            merged_env.update(self.credential_environment())
-        if env_overrides:
-            merged_env.update(env_overrides)
+        credentials = None
         if timeout_seconds is None:
             if any(arg in {"difftool", "mergetool"} for arg in args):
                 timeout_seconds = 86400
@@ -131,6 +129,12 @@ class GitRunner:
             raise GitCommandCancelledError(
                 "Operation cancelled. Refresh repository state before retrying."
             )
+
+        if self.credential_environment is not None:
+            credentials = self.credential_environment()
+            merged_env.update(credentials)
+        if env_overrides:
+            merged_env.update(env_overrides)
 
         started = self._monotonic()
         try:
@@ -156,6 +160,9 @@ class GitRunner:
             raise GitCommandLaunchError(
                 f"Unable to launch Git command: {redact(' '.join(command_args))}"
             ) from exc
+        finally:
+            if credentials is not None and hasattr(credentials, "close"):
+                credentials.close()
 
         elapsed_ms = int((self._monotonic() - started) * 1000)
         result = GitCommandResult(
@@ -171,7 +178,10 @@ class GitRunner:
         )
         operation = args[0] if args and args[0].isalpha() else "command"
         logging.getLogger("gitqt.git").info(
-            "Git %s finished: exit=%d elapsed_ms=%d", operation, result.exit_code, result.elapsed_ms
+            "Git %s finished: exit=%d elapsed_ms=%d",
+            operation,
+            result.exit_code,
+            result.elapsed_ms,
         )
         if completed.returncode != 0:
             result.stderr = redact(result.stderr)
@@ -198,20 +208,23 @@ class GitRunner:
             }
             for arg in command[1:]
         )
-        options = (
-            {"start_new_session": True}
-            if os.name != "nt"
-            else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        )
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **options,
-        )
+        options = {
+            "cwd": cwd,
+            "env": env,
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if os.name == "nt":
+            with owned_windows_process(command, **options) as (process, job):
+                return GitRunner._capture(
+                    process, command, timeout, input, text, context, report_output, job
+                )
+        process = subprocess.Popen(command, start_new_session=True, **options)
+        return GitRunner._capture(process, command, timeout, input, text, context, report_output)
+
+    @staticmethod
+    def _capture(process, command, timeout, input, text, context, report_output, job=None):
         output, errors = bytearray(), bytearray()
         overflow = Event()
         output_limit = (
@@ -267,7 +280,9 @@ class GitRunner:
             thread.start()
         started = time.monotonic()
         failure = None
-        while process.poll() is None:
+        # Descendants (hooks, SSH, credential helpers) can outlive Git while retaining
+        # its pipes. Continue enforcing cancellation and timeout until all I/O ends.
+        while process.poll() is None or any(thread.is_alive() for thread in threads):
             if overflow.is_set():
                 failure = GitOutputLimitError(
                     "This result exceeds the desktop preview limit. Narrow the selection or use an"
@@ -285,17 +300,8 @@ class GitRunner:
                 break
             time.sleep(0.025)
         if failure is not None:
-            if os.name == "nt":
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                        capture_output=True,
-                        timeout=10,
-                        check=False,
-                    )
-                finally:
-                    if process.poll() is None:
-                        process.kill()
+            if job is not None:
+                job.close()
             else:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)

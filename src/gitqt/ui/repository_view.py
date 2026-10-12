@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import copy, deepcopy
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -74,13 +74,12 @@ class RepositoryView(QWidget):
         self._observe_timer.setInterval(2000)
         self._observe_timer.timeout.connect(self._observe_repository)
         self._observe_timer.start()
-        QApplication.instance().applicationStateChanged.connect(
-            lambda state: (
-                self._observe_repository()
-                if state == Qt.ApplicationState.ApplicationActive
-                else None
-            )
-        )
+        QApplication.instance().applicationStateChanged.connect(self._on_application_state_changed)
+
+    @Slot(Qt.ApplicationState)
+    def _on_application_state_changed(self, state):
+        if state == Qt.ApplicationState.ApplicationActive:
+            self._observe_repository()
 
     def load_repository(self, repository_path: str) -> bool:
         if not self._jobs.activate(repository_path):
@@ -797,7 +796,7 @@ class RepositoryView(QWidget):
             confirm_label=f"Reset ({mode.value.title()})",
             recovery_hint=(
                 "Recovery retains HEAD and tracked work before resetting. Hard reset requires no"
-                " untracked or ignored files."
+                " submodules, untracked, or ignored files. Submodule worktrees are not reset."
             ),
             danger=mode is ResetMode.HARD,
             parent=self,

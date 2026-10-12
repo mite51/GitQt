@@ -23,7 +23,7 @@ def main():
                 ).encode()
             )
             response = json.loads(connection.makefile("rb").readline(65536))
-            if response is None:
+            if not isinstance(response, str) or "\n" in response or "\r" in response:
                 return 1
             print(response)
             return 0

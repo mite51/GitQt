@@ -55,7 +55,7 @@ class ExternalToolService:
             return ExternalToolLaunchResult(success=False, message=validation_error)
         assert tool_path is not None
 
-        command = f'{shlex.quote(tool_path)} "$LOCAL" "$REMOTE"'
+        command = f'{shlex.quote(str(Path(tool_path).expanduser()))} "$LOCAL" "$REMOTE"'
         args = [
             "-c",
             "diff.tool=gitqt-external",
@@ -68,7 +68,9 @@ class ExternalToolService:
             args.append("--staged")
         args.extend(["--", file_path])
         try:
-            self._runner.run(args, cwd=repository_path)
+            self._runner.run(
+                args, cwd=repository_path, env_overrides={"GIT_LITERAL_PATHSPECS": "1"}
+            )
         except GitCommandFailure as exc:
             stderr = exc.result.stderr.strip()
             return ExternalToolLaunchResult(
@@ -88,15 +90,29 @@ class ExternalToolService:
         tool_path: str | None,
         file_path: str,
     ) -> ExternalToolLaunchResult:
+        # Git's mergetool shell script expands its intermediate filename list.
+        # Literal pathspecs do not prevent that shell expansion on supported Git
+        # versions, so refuse unsafe names before any tool or index mutation.
+        if any(char in '*?["\\' or ord(char) < 32 or ord(char) == 127 for char in file_path):
+            return ExternalToolLaunchResult(
+                success=False,
+                message="Git's external merge launcher cannot safely handle this filename. "
+                "Resolve it in your editor, then stage the file in GitQt.",
+            )
         validation_error = self._validate_tool_path(tool_path, label="merge")
         if validation_error:
             return ExternalToolLaunchResult(success=False, message=validation_error)
         assert tool_path is not None
 
-        command = f'{shlex.quote(tool_path)} "$BASE" "$LOCAL" "$REMOTE" "$MERGED"'
+        command = (
+            f"{shlex.quote(str(Path(tool_path).expanduser()))}"
+            ' "$BASE" "$LOCAL" "$REMOTE" "$MERGED"'
+        )
         args = [
             "-c",
             "merge.tool=gitqt-external",
+            "-c",
+            "core.quotePath=false",
             "-c",
             f"mergetool.gitqt-external.cmd={command}",
             "mergetool",
@@ -105,7 +121,9 @@ class ExternalToolService:
             file_path,
         ]
         try:
-            self._runner.run(args, cwd=repository_path)
+            self._runner.run(
+                args, cwd=repository_path, env_overrides={"GIT_LITERAL_PATHSPECS": "1"}
+            )
         except GitCommandFailure as exc:
             stderr = exc.result.stderr.strip()
             return ExternalToolLaunchResult(

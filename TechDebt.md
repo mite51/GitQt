@@ -1,6 +1,6 @@
 # GitQt feature gaps and technical debt
 
-Reviewed: 2026-10-05. Target: a complete, local-first desktop Git client with the everyday workflow coverage users associate with GitKraken Desktop.
+Reviewed: 2026-10-12. Target: a complete, local-first desktop Git client with the everyday workflow coverage users associate with GitKraken Desktop.
 
 This backlog comes from inspecting the implementation, UI wiring, tests, product requirements, and release configuration, with GitKraken's official documentation as a comparison. It distinguishes missing features from partially implemented workflows. Some larger items are explicitly deferred by `PRD.md`; they are future product scope, not failures to deliver the original MVP. Priorities are recommendations for GitQt, not a requirement to copy every GitKraken feature.
 
@@ -42,9 +42,9 @@ Implemented the session-isolation foundation first, then background execution an
 | TD-05 | Implemented; platform acceptance pending | Live transfer/hook output, per-operation timeout defaults, cancellable clone/transfers/connection tests, process-tree termination, secret redaction, busy cleanup, and refresh after interruption. Local tests cover launch errors, timeout, child-process cancellation, authentication cancellation, and retry. Windows process-tree handling still needs execution on Windows. Cancellation does not promise rollback. |
 | TD-07 | Desktop integration implemented; provider/platform acceptance remains open | Git/OpenSSH askpass prompts use an authenticated localhost bridge, existing helpers/agents remain active, Connection Setup offers diagnostics/retry/cancel and SSH-key loading. Tests exercise real Git HTTPS credential requests, repeated prompts, SSH passphrase handoff, and cancellation during a visible prompt without storing secrets. Actual HTTPS/SSH hosting-provider flows, expired provider access, locked-key unlocking, and platform keychains still require acceptance testing. Key/agent creation and provider OAuth are not implemented. |
 | TD-08 | Implemented for single-destination branch transfers | Remote CRUD with URL inspection; remote/branch choices; first publish with upstream; prune; explicit merge/rebase/fast-forward-only pulls; force-with-lease with retained destination tip and commit-count preview. The lease pins the previewed remote object ID; the pushed source commit and destination URL are pinned too. Force push leaves upstream configuration unchanged. Real bare-remote tests cover publish, distinct fetch/push URLs, divergence, remote recovery, and intervening external fetch/push. Multi-push-URL/custom-refspec editors remain outside this UI. |
-| TD-09 | Implemented | Debounced polling of local status/refs/HEAD/index/config and operation state, plus application-activation refresh. Linked-worktree metadata is resolved correctly. Drafts, selections, and scroll position are preserved. No implicit background network fetch. |
+| TD-09 | Implemented | Debounced polling of local status/refs/HEAD/index/config and operation state, plus application-activation refresh. Linked-worktree metadata is resolved correctly. Drafts, selections, and scroll position are preserved. Activation callbacks disconnect when a repository view is destroyed. No implicit background network fetch. |
 | TD-10 | Implemented with explicit restart for Git-path changes | Preferences, identity, and connection setup are available from the application menu/dashboard. Background validation requires Git 2.30+. Global/repository author settings are editable; startup reports missing/unsupported Git. Git-path changes explicitly require restart; crash-report hooks and other supported preferences change immediately. |
-| TD-11 | Implemented for documented recovery actions | Recovery browser for retained commits/stashes, file backups, remote URLs, and HEAD reflog. Reset retains HEAD and tracked work; branch deletion and stash pop/drop retain objects. File restoration saves newer edits first. Hard reset refuses untracked/ignored files. Recovery refs survive restart and Git garbage collection; reflog remains subject to Git expiry. No universal undo; remote custom/upstream config is not restored. |
+| TD-11 | Implemented for documented recovery actions | Recovery browser for retained commits/stashes, file backups, remote URLs, and HEAD reflog. Reset retains HEAD and tracked work; branch deletion and stash pop/drop retain objects. File restoration saves newer edits first. Hard reset refuses untracked/ignored files and repositories containing submodules, whose nested worktrees are not backed up. Recovery refs survive restart and Git garbage collection; reflog remains subject to Git expiry. No universal undo; remote custom/upstream config is not restored. |
 
 Validation: **230 tests passed**, including **36 new regression tests** for this step; four existing Qt deprecation warnings remain. Credential tests require permission to bind a localhost socket and never contact an external host. New modules pass Ruff; repository-wide lint still reports unrelated existing style findings. Offscreen visual checks covered transfer, preferences, and connection-setup dialogs. Cross-platform desktop/manual provider acceptance remains explicitly open under TD-05 and TD-07.
 
@@ -55,7 +55,7 @@ Implemented the daily-driver workflows and distribution foundations. The origina
 
 | Item | Current status | Delivered / remaining |
 | --- | --- | --- |
-| TD-12 | Linux artifacts built and smoke-tested; native release acceptance pending | Standalone app and credential helper, bundled Qt/plugins/fonts/icons, Debian installer/desktop entry, Windows Inno Setup recipe, macOS app/DMG recipe, native CI matrix, version display, license/notices inventory, source/wheel builds, checksums, and install/update/removal guide. Windows/macOS execution, publisher signing/notarization, clean-machine desktop acceptance, and corresponding-source/dependency-license audit remain release gates in `RELEASE.md`. No public release or automatic updater. |
+| TD-12 | Linux artifacts built and smoke-tested; native release acceptance pending | Standalone app and credential helper, bundled Qt/plugins/fonts/icons, reproducible Linux/Windows portable archives, Debian installer/desktop entry, Windows Inno Setup recipe, macOS app/DMG recipe, native lifecycle CI gates, version/tag consistency checks, final checksum verification, license/notices inventory, and source/wheel builds. Isolated-root Debian install/reinstall/removal passes locally. Old-to-new upgrade, Windows/macOS execution, publisher signing/notarization, clean-machine desktop acceptance, and corresponding-source/dependency-license audit remain release gates in `RELEASE.md`. No public release or automatic updater. |
 | TD-13 | Implemented | Dashboard New Repository with configurable initial branch and optional uncommitted README/.gitignore; asynchronous Git-based discovery normalizes subfolders and supports linked worktrees. Empty repositories show their unborn branch correctly. Bare repositories are explicitly rejected with guidance; broken Git metadata reports a validation error. |
 | TD-14 | Implemented for documented single-destination workflows | Branch rename, upstream setting, tracking checkout, remote branch deletion; local tag inspection/checkout/deletion/push and remote tag loading/deletion. Sidebar actions and Repository → Branches and Tags expose the workflows. Remote deletion retains the exact object and uses an explicit lease against the captured destination URL/object. Tag recovery preserves annotated objects and creates a new tag. Existing tags are never force-overwritten by tag push. |
 | TD-18 | Amend corrections implemented; broader composer work remains | Preload the current message, restore the previous draft when leaving Amend, allow message-only amend, reject a changed HEAD, warn about known remote refs containing the commit, and retain the old commit in Recovery. Published-state detection uses locally known remote refs, with an explicit freshness caveat. Templates, signing controls, co-authors, and durable per-repository drafts remain future scope. |
@@ -63,6 +63,22 @@ Implemented the daily-driver workflows and distribution foundations. The origina
 | TD-30 | Foundations implemented | Atomic/fsynced settings replacement and previous-good backup, preserved corrupt-file recovery with a visible notice, fresh preference updates that preserve recents, bounded rotating logs with command duration/exit status, redacted log/trace output, and an opt-in sanitized local support ZIP. History failures remain visible instead of becoming empty results. Cross-process settings coordination and broader actionable-error UX remain future work. |
 
 Validation: **258 tests passed** (**28 added** in this step), including real-repository GUI workflows, stale remote deletion leases, message-only amend, root/merge/unusual-path history, output limits, interrupted settings writes, and sanitized export. Repository-wide Ruff and Black checks pass. Offscreen visual inspection covered the creation and branch/tag dialogs. The standalone Linux executable and extracted Debian payload pass the packaged smoke test outside the checkout, including their bundled credential helper. Linux benchmark: 81.6 ms first page, 27.8 ms next page, 47.3 ms layout of 5,000 rows, 5.0 MiB traced Python peak. Native desktop/provider acceptance remains explicitly open; see `RELEASE.md`.
+
+## Current acceptance matrix
+
+The gap-closure delivery passes **328 tests**, with **3 native Windows tests skipped** on Linux, up from the **258-test** baseline. New coverage exercises workflow boundaries, worker lifetime, real remote UI controls, first-run setup, local authentication, release tooling, and data-loss prevention. Repository-wide Ruff, Black formatting, and whitespace checks pass. Independent review reproduced and verified fixes for unsafe external-merge filenames, submodule hard reset, and Windows process ownership; native Windows execution remains pending.
+
+| Area | Linux | Windows | macOS |
+| --- | --- | --- | --- |
+| Source test suite | 328 passed; 3 native Windows tests skipped locally | CI configured; current branch run pending | CI configured; current branch run pending |
+| Portable application | Built and smoke-tested locally outside the checkout | Build recipe/CI only; native artifact acceptance pending | Build recipe/CI only; native artifact acceptance pending |
+| Installer | Isolated-root install, same-version reinstall, packaged smoke, removal, and retained-settings check passed locally; old-to-new and clean-machine checks pending | Inno Setup recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending | DMG recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending |
+| Real HTTPS/SSH provider authentication and platform credential storage | Pending | Pending | Pending |
+| Process-tree cancellation | Local POSIX coverage exists | Native Windows descendant-process acceptance pending | Native execution pending |
+| Publisher trust | No publisher signing acceptance recorded | Authenticode signing and verification pending | Developer ID signing, notarization, stapling, and verification pending |
+| Dependency notices and corresponding source | Automated inventory exists; publisher audit pending | Platform-native library audit pending | Platform-native library audit pending |
+
+Evidence commands and release gates are maintained in `RELEASE.md`. No row above implies a public release or automatic updater.
 
 
 ## Priorities
@@ -77,121 +93,97 @@ Validation: **258 tests passed** (**28 added** in this step), including real-rep
 
 ### TD-01 — Finish partial staging and discard actions
 
-**Status:** Backend support exists; visible UI actions are incomplete.
+**Current status:** Implemented for regular text changes. `StatusService.apply_hunk()` and the working-tree diff controls support hunk and selected-line stage/unstage/discard, including new/deleted files and files without a trailing newline. Unsupported binary, symlink, submodule, mode-only, and rename/copy partial actions are disabled with whole-file actions retained. Rename previews and whole-rename unstage behavior now have targeted regression coverage.
 
-**Evidence:** `WorkingTreeView._stage_hunk()` in `src/gitqt/ui/working_tree_view.py` is `pass`. `DiffToolbar.discard_hunk_clicked` in `src/gitqt/ui/diff_view.py` is not connected to an action. `StatusService.stage_hunk()` exists, but there is no corresponding line-selection or partial-unstaging workflow.
-
-**User impact:** Buttons suggest that users can split a file into focused commits or discard an individual change, but the actions do nothing.
+**Historical finding:** The initial review found an unconnected hunk action and no partial unstage/discard workflow. That evidence describes the pre-delivery baseline and is no longer current.
 
 **Done when:** Users can select a specific hunk or changed lines and stage/unstage them, discard selected changes with an impact preview, and stage/unstage multiple files or all files. Verify the resulting index and working tree in real repositories, including deletions and files without a trailing newline. Disable unsupported actions explicitly until implemented. Coordinate recoverable discard with TD-11.
 
 ### TD-02 — Show the correct staged, unstaged, and new-file content
 
-**Status:** Diff viewing exists but misses essential states.
+**Current status:** Implemented. Selection carries the staged/unstaged side, untracked text is previewed, and empty, binary, metadata-only, symlink, submodule, rename/copy, and conflict states have explicit explanations. Regression coverage includes files with both staged and unstaged edits plus rename, mode-only, and submodule boundaries.
 
-**Evidence:** `WorkingTreeView._on_file_selected()` passes only a path. `WorkingTreeViewModel.select_file()` in `src/gitqt/app/working_tree.py` chooses `staged=selected_entry.staged and not selected_entry.unstaged`, so a file present in both lists always selects the unstaged diff. `StatusService.get_diff()` uses `git diff`, which does not preview untracked files. `DiffView.set_diff()` treats all empty hunk lists as the generic selection empty state.
-
-**User impact:** Users cannot reliably inspect exactly what they are committing, and new or binary files can appear to have no content to review.
+**Historical finding:** The initial review found implicit side selection and no untracked preview. Those paths were replaced by explicit preview state.
 
 **Done when:** Selection includes an explicit index/working-tree side; untracked text files have content previews; binary, empty, mode-only, symlink, and unsupported content changes have accurate explanations. Regression tests cover a file with both staged and unstaged edits and verify each view separately.
 
 ### TD-03 — Complete interrupted merge/rebase/cherry-pick/revert workflows
 
-**Status:** Start actions and conflict detection exist; operation lifecycle controls are missing.
+**Current status:** Implemented for merge, rebase, cherry-pick, and revert. Persistent Git-state detection and Continue/Skip/Abort actions survive reopening and remain visible after the last resolution is staged. Targeted UI coverage now verifies reopened Continue controls for rebase, cherry-pick, and revert as well as existing real-operation lifecycle tests. External merge supports Unicode and spaces; filenames unsafe for Git’s shell launcher are rejected before mutation with guidance to resolve manually and stage.
 
-**Evidence:** `src/gitqt/services/commit_operations.py` starts operations but has no continue/skip/abort methods. `ConflictService` in `src/gitqt/services/conflict.py` detects rebase versus a generic merge fallback only while unmerged files exist. Repository action dialogs direct users to terminal commands for recovery.
-
-**User impact:** A user can start an operation in the app but cannot finish or abandon it entirely there. Staging the last resolution hides conflict state even when an operation still needs continuation; cherry-pick/revert conflicts can be described as merges.
+**Historical finding:** The initial review found start-only actions and conflict detection tied to unmerged files. The current operation service and banner supersede that behavior.
 
 **Done when:** A persistent operation banner detects Git operation state independently of unmerged files, identifies the operation correctly, and provides appropriate continue/skip/abort controls. Preserve this state after restarting the app. Test real conflicting operations through resolution and abort, including the fully staged but unfinished state. External resolution must remain a supported path; an internal editor is TD-17.
 
 ### TD-04 — Move all potentially slow Git work off the UI thread
 
-**Status:** Background infrastructure exists but is only partially adopted.
+**Current status:** Implemented for supported workflows through `SessionJobs` and the worker pool. Clone, reads, working-tree mutations, commit operations, reference management, setup, external tools, and recovery run in background jobs; Qt state is applied on the UI thread. Slow clone/checkout/diff/commit and real slow-hook regressions cover responsiveness.
 
-**Evidence:** `CloneDialog._do_clone()` in `src/gitqt/ui/dialogs.py` calls blocking `subprocess.run()` directly. Working-tree selection, staging, and commit handlers call services synchronously. Branch, stash, and commit-operation handlers in `src/gitqt/ui/repository_view.py` also call Git directly. Refresh and remote operations already use `WorkerPool`.
-
-**User impact:** Cloning, slow hooks, large diffs, checkouts, and merges can freeze the application despite its background worker architecture.
+**Historical finding:** The initial review identified direct blocking calls in UI handlers. Those handlers now submit background work.
 
 **Done when:** All potentially slow subprocess work uses a common background command layer, UI changes stay on the Qt thread, and relevant controls show busy state. Verify responsiveness during a slow clone, commit hook, checkout, and diff load.
 
 ### TD-05 — Add real progress, cancellation, and reliable timeout recovery
 
-**Status:** Progress messages and scheduler cancellation exist; process lifecycle support is incomplete.
+**Current status:** Implemented locally; native Windows acceptance remains open. Git output streams through process contexts, operation-specific timeouts replace the original short default, cancellable operations terminate process trees, and all result/submission paths release scheduler bookkeeping and restore controls. Current regressions add timeout cleanup for pipe-holding descendants and failed-submission/retry handling. Windows now owns each command and its descendants in a Job Object before execution; native tests for exited-parent timeout, cancellation, and detached-child cleanup still require Windows execution.
 
-**Evidence:** `GitRunner.run()` in `src/gitqt/services/git.py` captures output only at process exit and defaults to a 10-second timeout. Remote operations inherit this timeout; clone separately uses 120 seconds. `WorkerScheduler.cancel()` suppresses work/results but does not terminate a running Git process. In `RepositoryView._run_remote_op_async()`, buttons are restored inside `_apply()`, but `_submit_read()` returns early on `WorkerError`, bypassing that cleanup.
-
-**User impact:** Legitimate long operations can time out, users cannot inspect live transfer/hook output or stop a running operation, and a timeout/launch exception can leave Fetch/Pull/Push disabled.
+**Historical finding:** The initial review found exit-only output, scheduler-only cancellation, and cleanup paths that could leave controls disabled. Those implementation gaps are closed in the current source.
 
 **Done when:** Stream output, use suitable per-operation timeouts, expose cancellation where safe, handle child processes, and restore controls on every completion path. Refresh repository state after interruption rather than implying a rollback. Include timeout, launch-failure, authentication-wait, and cancellation tests.
 
 ### TD-06 — Isolate repository sessions and serialize conflicting writes
 
-**Status:** Same-key stale-result suppression exists; broader session isolation is incomplete.
+**Current status:** Implemented. Session generations and per-channel identities reject stale results and errors, mutations are distinct, incompatible controls/navigation are gated, and repository locks cover linked worktrees. Current worker-lifecycle regressions verify completed keys are released, failed submission permits retry, and late errors cannot revive superseded requests.
 
-**Evidence:** Worker keys in `src/gitqt/ui/repository_view.py` and `src/gitqt/ui/history_view.py` include repository paths, limits, or filters. `WorkerScheduler` only suppresses older work sharing the exact key. Callbacks update reused widgets without checking the currently active repository/filter generation. Remote busy state disables three toolbar buttons, while other write actions remain available.
-
-**User impact:** A late result from repository A can overwrite repository B's display; an earlier history filter can overwrite a later one. Simultaneous operations on one repository can collide on Git locks or produce confusing state.
+**Historical finding:** The initial review found exact-key suppression without session identity or repository-wide write gating. `SessionJobs` and worker-pool lifecycle cleanup supersede that design.
 
 **Done when:** Use immutable results plus active-session/generation checks, invalidate old callbacks on navigation, and serialize incompatible writes per repository. Read-job deduplication must not silently cancel or repeat user-requested mutations. Test switching repositories and filters while jobs are delayed, and attempting branch/stash/commit actions during a pull.
 
 ### TD-07 — Make private-repository authentication usable from the desktop
 
-**Status:** Git's existing environment/helpers may work; guided setup and prompts are missing.
+**Current status:** Desktop integration is implemented; provider/platform acceptance remains open. Git/OpenSSH askpass uses an authenticated localhost bridge while preserving configured helpers and agents. Connection Setup provides diagnostics, retry/cancel, and existing-key loading. Current local acceptance uses a real rejecting HTTP endpoint to verify bad-token retry, and a real encrypted SSH key/agent flow to verify desktop passphrase unlocking; prompt capability cleanup and redaction have additional regressions. No real hosting provider or platform keychain has been accepted.
 
-**Evidence:** `src/gitqt/services/git.py` delegates to the Git CLI; `src/gitqt/services/remote.py` classifies authentication errors and recommends external credential/SSH configuration. There is no desktop credential prompt, SSH-agent setup/diagnostics, or account setup workflow in the UI.
-
-**User impact:** A public clone can work while a private clone, expired credential, passphrase-protected key, or first-time SSH connection leaves the user dependent on a terminal.
+**Historical finding:** The initial review found no desktop prompt or guided diagnostics. The askpass broker and Connection Setup replace that behavior. Key creation and provider OAuth remain outside this item.
 
 **Done when:** Integrate platform credential helpers/askpass and SSH agents, provide actionable connection diagnostics, and support retry/cancel without storing secrets in ordinary settings or logs. Validate HTTPS and SSH with existing credentials, missing credentials, expired access, and locked keys. Hosting-provider OAuth is an optional extension under TD-26.
 
 ### TD-08 — Finish remote configuration, publish, and pull/push options
 
-**Status:** Common commands work; configuration and several existing backend options are not exposed.
+**Current status:** Implemented for documented single-destination branch transfers. Remote CRUD, destination inspection, first publish/upstream, prune, merge/rebase/fast-forward-only pulls, and pinned force-with-lease previews are exposed. Current real-UI regressions cover add/edit/remove, publish, prune, and all three pull modes. Multi-push-URL and custom-refspec editors remain outside this UI.
 
-**Evidence:** `RemoteService` supports prune, pull-rebase, set-upstream, and force-with-lease flags. Repository toolbar handlers call defaults. The sidebar offers fetch/push for existing remotes, with no remote add/edit/remove UI or first-push publishing flow.
-
-**User impact:** A newly created branch may fail to push because it has no upstream. Fork workflows, alternate remotes, divergent pulls, and publishing rewritten history require external setup.
+**Historical finding:** The initial review found backend flags without the corresponding dialogs. The remote dialogs and guarded transfer flows supersede that state.
 
 **Done when:** Add remote CRUD with URL inspection, explicit remote/branch selection, publish-and-track for a new branch, fetch/prune options, and merge/rebase/fast-forward-only pull choices. Offer force-with-lease with a concrete impact preview; show the destination before pushing. Test first publish, fork/upstream selection, and non-fast-forward recovery.
 
 ### TD-09 — Refresh automatically after external repository changes
 
-**Status:** Manual and post-operation refresh exist; external-change observation is missing.
+**Current status:** Implemented with debounced polling and application-activation refresh. Local worktree/Git metadata changes include linked-worktree paths; refresh preserves drafts, selection, and history position and does not fetch. Current activation coverage verifies draft/selection preservation and absence of network commands; model switches no longer copy commit drafts between repository view models.
 
-**Evidence:** Repository refreshes are triggered by app actions and F5. No repository filesystem watcher or application-activation refresh is present. TTL caches expire when read; they do not initiate refreshes.
-
-**User impact:** Saving in an editor, using an external merge tool, or running Git in a terminal can leave status, history, and ahead/behind indicators stale.
+**Historical finding:** The initial review found action-triggered refresh only. Repository fingerprints and activation observation replace that behavior.
 
 **Done when:** Observe relevant worktree/Git changes with debouncing, refresh on app activation, and preserve selection, scroll position, and commit drafts. Handle linked-worktree metadata paths. Make background remote fetching a separate configurable preference rather than an automatic consequence of local refresh.
 
 ### TD-10 — Complete first-run setup and apply settings consistently
 
-**Status:** Git discovery, settings persistence, and author display exist; onboarding and runtime application are incomplete.
+**Current status:** Implemented with an explicit restart boundary for Git-path changes. Preferences, Commit Identity, and Connection Setup remain accessible before a repository opens. Git 2.30+ validation, global/repository identity, immediate crash-hook updates, and restart guidance are implemented. Current first-run regressions cover missing Git and Git 2.29 while proving setup actions remain available.
 
-**Evidence:** Services are built from the Git executable in `src/gitqt/app/bootstrap.py`. `RepositoryView._apply_settings()` updates appearance/external tools but does not rebuild the Git runner or change crash-reporter installation. Settings are exposed from the repository toolbar, and commit identity is read rather than configured in the app.
-
-**User impact:** A user without a working Git installation or author identity lacks a clear setup flow. Changing the Git path or crash-report preference can appear to take effect immediately when the active services remain unchanged.
+**Historical finding:** The initial review found repository-only settings and ambiguous runtime application. Application-level setup and explicit restart messaging supersede that behavior.
 
 **Done when:** Offer preferences from the dashboard/application menu, validate Git and supported capabilities, explain installation/configuration failures, and configure global/repository identity. Apply service-affecting settings safely or explicitly request a restart. Verify the displayed crash-report preference matches actual behavior.
 
 ### TD-11 — Provide practical recovery and accurate destructive-action guidance
 
-**Status:** Confirmations and CLI recovery hints exist; in-app recovery does not.
+**Current status:** Implemented for documented recovery actions. The Recovery browser exposes retained commits/stashes/tags, discard backups, remote URLs, and HEAD reflog. Reset and destructive reference actions retain supported data; hard reset refuses untracked/ignored content and repositories containing submodules because nested worktrees are not backed up. Current regressions cover Recovery-browser file restoration with preservation of newer edits and backup/recovery before the first commit. There is no universal undo, and restored remotes do not recreate custom/upstream configuration.
 
-**Evidence:** Reset, branch-delete, and stash-drop dialogs in `src/gitqt/ui/repository_view.py` point users to reflog. The stash-drop dialog suggests dropped stashes can be recovered through reflog for a short time, which is not a reliable recovery guarantee. There is no reflog browser, captured recovery reference, or undo journal.
-
-**User impact:** Users can delete or rewrite work through the GUI but have no comparable GUI recovery path. Reflog-based commit recovery does not restore arbitrary uncommitted content discarded by a hard reset.
+**Historical finding:** The initial review found advice-only recovery and unreliable stash wording. Persistent recovery refs/backups and the Recovery browser supersede it.
 
 **Done when:** Add a reflog/recovery browser, retain recovery information for supported destructive actions, and offer undo only where the app can safely support it. Distinguish committed-history recovery from backups of uncommitted work. Capture stash object IDs before dropping and explain retention limits accurately. Test recovery across restart and intervening external Git changes. GitKraken's [bounded undo/redo workflow](https://help.gitkraken.com/gitkraken-desktop/undo-and-redo/) is a useful reference.
 
 ### TD-12 — Deliver installable releases and real installation checks
 
-**Status:** Python packaging metadata and cross-platform test CI exist; desktop release delivery is missing.
+**Current status:** Linux artifacts are built and locally smoke-tested; native release acceptance remains pending. The repository contains standalone bundle, Debian, Inno Setup, DMG, checksum, source/wheel, and native CI recipes plus version/license/notices assets. `RELEASE.md` records the exact commands and unresolved gates. Windows/macOS execution, clean-machine lifecycle checks, publisher signing/notarization, real-provider acceptance, dependency/corresponding-source audit, and public distribution remain incomplete. There is no automatic updater.
 
-**Evidence:** `README.md` requires a Python environment and development installation. `.github/workflows/ci.yml` installs from source and runs pytest. `tests/test_packaging_smoke.py` checks metadata, not a built application. There are no desktop bundle/installer release workflows in the reviewed tree.
-
-**User impact:** Non-Python users cannot install and update the app like a normal desktop Git client.
+**Historical finding:** The initial review found only source packaging and test CI. Desktop build/install recipes and Linux smoke evidence now exist, but recipes and uploaded review artifacts are not accepted releases.
 
 **Done when:** Produce and smoke-test supported Linux, macOS, and Windows distributions, including Qt plugins, fonts, and icons; document Git installation/bundling and supported versions; provide application identity/version information, release notes, checksums, and an update path. Address platform signing/notarization where applicable. Include a top-level license file and required bundled dependency notices consistent with the declared license.
 

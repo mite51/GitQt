@@ -83,17 +83,19 @@ All Git work runs in background jobs. A repository write disables conflicting ac
 
 GitQt checks the visible repository for external changes every two seconds and on application activation. Local refresh preserves drafts, file selection, and history position. It does not fetch remote data automatically.
 
+External merge tools support filenames containing spaces and Unicode. GitQt refuses names containing shell wildcards, quotes, backslashes, or control characters because Git’s merge-tool launcher can misinterpret them. Resolve those files in your editor, then stage them in GitQt.
+
 ## Recovery
 
 **Repository → Recovery** lists retained commit/stash references, discarded-file backups, removed-remote URLs, and the latest 100 HEAD reflog entries.
 
 - Recover committed history by creating a new branch; the current checkout is unchanged.
 - Before reset, GitQt retains HEAD and any tracked index/worktree changes. Before dropping or popping a stash, it retains the stash object. Saved work can be applied with its index state into a clean working tree; conflicts are reported without removing the recovery reference.
-- Hard reset is refused while untracked or ignored files exist because tracked-work backups cannot recover them. Move those files outside the repository first. This is a deliberate boundary of the supported recovery workflow.
+- Hard reset is refused while untracked or ignored files exist because tracked-work backups cannot recover them. Move those files outside the repository first. Hard reset is also unavailable in repositories containing submodules because their nested worktrees are not backed up. Soft and mixed reset remain available and do not reset nested worktrees.
 - Amend retains the previous commit; tag deletion retains the full tag object and annotation. Restore a deleted tag under a new tag name in Recovery.
 - Branch deletion retains the branch tip. Remote removal retains tracked commit tips and the remote's fetch/push URLs. Restoring a remote does not recreate its previous upstream/custom configuration; fetch and set upstream again.
 - File recovery preserves newer file contents in another backup before restoring. It does not change staging.
 
 GitQt recovery references and backups have no automatic expiry; deleting them manually removes this protection. Reflog entries follow Git's normal expiration rules. Recovery is a set of specific restore actions, not a general undo/redo guarantee. Recovery-only refs are excluded from the default history graph.
 
-Desktop authentication, process-tree cleanup, and the installed Linux payload have automated local tests. Real hosting-provider credentials, macOS/Windows helper behavior, and native desktop installation still require platform acceptance testing.
+Desktop authentication, process-tree cleanup, remote dialogs, first-run setup, and the installed Linux payload have automated local tests. Local acceptance includes a rejecting HTTP endpoint with credential retry and an encrypted SSH key unlocked through desktop askpass; these do not substitute for a real hosting provider or platform credential store. Real provider credentials, Windows/macOS helper behavior, native clean-machine installation, signing/notarization, and the publisher dependency/source audit still require release acceptance.

@@ -84,7 +84,7 @@ def test_reset_to_emits_mode_flag_for_each_reset_mode() -> None:
 
         service.reset_to("/tmp/repo", "abc1234", mode)
 
-        assert runner.calls == [("reset", flag, "abc1234")]
+        assert runner.calls == [("reset", flag, "--no-recurse-submodules", "abc1234")]
 
 
 def test_failed_git_command_produces_unsuccessful_result_with_stderr() -> None:
