@@ -10,6 +10,7 @@ from gitqt.services.commit import CommitService
 from gitqt.services.commit_operations import CommitOperationsService
 from gitqt.services.conflict import ConflictService
 from gitqt.services.crash_reporting import CrashReporter
+from gitqt.services.drafts import DraftStore
 from gitqt.services.external_tools import ExternalToolService
 from gitqt.services.git import GitExecutable, GitLocator, GitNotFoundError, GitRunner
 from gitqt.services.history import HistoryService
@@ -53,6 +54,7 @@ class AppServices:
     worker_pool: WorkerPool
     crash_reporter: CrashReporter
     credential_broker: object | None = None
+    drafts: DraftStore | None = None
 
 
 def default_config_dir(app_name: str = "GitQt") -> Path:
@@ -130,4 +132,5 @@ def build_services(
         external_tools=external_tools,
         worker_pool=worker_pool,
         crash_reporter=crash_reporter,
+        drafts=DraftStore(paths.config_dir / "drafts.json"),
     )

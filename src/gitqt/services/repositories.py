@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from gitqt.services.git import GitCommandFailure, GitLocator, GitNotFoundError, GitRunner
-from gitqt.services.settings import SettingsStore
+from gitqt.services.settings import AppSettings, SettingsStore
 
 
 class RepositoryValidationCode(StrEnum):
@@ -152,30 +152,33 @@ class RecentRepositoriesService:
         if not validation.is_valid:
             return validation
 
-        normalized = validation.path
-        settings = self._settings_store.load()
-        repositories = [repo for repo in settings.recent_repositories if repo != normalized]
-        repositories.insert(0, normalized)
-        settings.recent_repositories = repositories[: self._max_recent]
-        self._settings_store.save(settings)
+        self._record_recent(validation.path, opened=False)
         return validation
 
-    def open_repository(self, path: str | Path) -> RepositoryValidationResult:
-        validation = self.add_repository(path)
-        if not validation.is_valid:
-            return validation
+    def _record_recent(self, normalized: str, *, opened: bool) -> None:
+        def add(settings: AppSettings) -> None:
+            repositories = [repo for repo in settings.recent_repositories if repo != normalized]
+            repositories.insert(0, normalized)
+            settings.recent_repositories = repositories[: self._max_recent]
+            if opened:
+                settings.last_repository = normalized
 
-        settings = self._settings_store.load()
-        settings.last_repository = validation.path
-        self._settings_store.save(settings)
+        self._settings_store.mutate(add)
+
+    def open_repository(self, path: str | Path) -> RepositoryValidationResult:
+        validation = self._validator.validate(str(Path(path).expanduser().resolve()))
+        if validation.is_valid:
+            self._record_recent(validation.path, opened=True)
         return validation
 
     def remove_repository(self, path: str | Path) -> None:
         normalized = str(Path(path).expanduser().resolve())
-        settings = self._settings_store.load()
-        settings.recent_repositories = [
-            repo for repo in settings.recent_repositories if repo != normalized
-        ]
-        if settings.last_repository == normalized:
-            settings.last_repository = None
-        self._settings_store.save(settings)
+
+        def remove(settings: AppSettings) -> None:
+            settings.recent_repositories = [
+                repo for repo in settings.recent_repositories if repo != normalized
+            ]
+            if settings.last_repository == normalized:
+                settings.last_repository = None
+
+        self._settings_store.mutate(remove)

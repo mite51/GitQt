@@ -57,6 +57,7 @@ class RepositoryView(QWidget):
         self._repository_path: str | None = None
         self._remote_operation_busy = False
         self._operation_action_busy = False
+        self._comparison_dialogs = []
 
         # View models (created per-repository load)
         self._working_tree_vm: WorkingTreeViewModel | None = None
@@ -81,7 +82,19 @@ class RepositoryView(QWidget):
         if state == Qt.ApplicationState.ApplicationActive:
             self._observe_repository()
 
+    def closeEvent(self, event):
+        if self._jobs.busy or not self._working_tree.flush_draft():
+            event.ignore()
+            return
+        self._jobs.activate(None)
+        self._history_view.invalidate_jobs()
+        super().closeEvent(event)
+
     def load_repository(self, repository_path: str) -> bool:
+        if self._jobs.busy:
+            return False
+        if not self._working_tree.flush_draft():
+            return False
         if not self._jobs.activate(repository_path):
             return False
         same_repo = repository_path == self._repository_path
@@ -316,6 +329,7 @@ class RepositoryView(QWidget):
         self._history_view.merge_commit_requested.connect(self._merge_commit_into_head)
         self._history_view.rebase_onto_commit_requested.connect(self._rebase_onto_commit)
         self._history_view.reset_to_commit_requested.connect(self._reset_to_commit)
+        self._history_view.compare_commit_requested.connect(self._open_commit_comparison)
 
         self._sidebar.branch_checkout_requested.connect(self._checkout_branch)
         self._sidebar.branch_create_requested.connect(self._show_create_branch_dialog)
@@ -338,11 +352,34 @@ class RepositoryView(QWidget):
                 external_tool_service=s.external_tools,
                 external_diff_tool_path=s.settings.external_diff_tool,
                 external_merge_tool_path=s.settings.external_merge_tool,
+                draft_store=s.drafts,
             )
+            self._working_tree_vm.set_repository_target(self._repository_path)
         if s.stash and s.tag:
             self._references_vm = ReferencesViewModel(s.stash, s.tag)
         if s.remote:
             self._remote_ops_vm = RemoteOperationsViewModel(s.remote)
+
+    def _open_commit_comparison(self, commit):
+        self._open_comparison(commit=commit)
+
+    def _open_comparison(self, *, commit=None):
+        if self._jobs.busy or self._repository_path is None or self._services.git_runner is None:
+            return
+        from gitqt.services.comparison import ComparisonService
+        from gitqt.ui.comparison_dialog import ComparisonDialog
+
+        dialog = ComparisonDialog(
+            ComparisonService(self._services.git_runner),
+            self._repository_path,
+            self,
+            commit=commit,
+            pool=self._services.worker_pool,
+        )
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._comparison_dialogs.append(dialog)
+        dialog.destroyed.connect(lambda: self._comparison_dialogs.remove(dialog))
+        dialog.show()
 
     def _submit_read(
         self,

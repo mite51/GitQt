@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from gitqt.app.bootstrap import AppServices
+from gitqt.ui.commands import CommandPalette, CommandRegistry
 from gitqt.ui.dashboard_view import DashboardView
 from gitqt.ui.repository_view import RepositoryView
 
@@ -60,36 +61,112 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._check_setup)
 
     def _setup_shortcuts(self) -> None:
-        open_action = QAction("Open Repository", self)
-        open_action.setShortcut(QKeySequence("Ctrl+O"))
-        open_action.triggered.connect(
-            lambda: (
-                self._dashboard._open_repository_dialog()
-                if not self._repository_view._jobs.busy
-                else None
-            )
-        )
-        self.addAction(open_action)
+        self._commands = CommandRegistry(self)
+        add = self._commands.register
+        view = self._repository_view
+        tree = view._working_tree
 
-        refresh_action = QAction("Refresh", self)
-        refresh_action.setShortcut(QKeySequence("F5"))
-        refresh_action.triggered.connect(self._refresh_current)
-        self.addAction(refresh_action)
+        def idle():
+            return not view._jobs.busy
+
+        def ready():
+            return idle() and self._dialog_repository() is not None
+
+        add(
+            "open",
+            "Open Repository…",
+            self._dashboard._open_repository_dialog,
+            available=idle,
+            shortcut=QKeySequence.StandardKey.Open,
+        )
+        add("refresh", "Refresh", self._refresh_current, available=idle, shortcut="F5")
+        add("preferences", "Preferences…", view._open_settings_dialog, available=idle)
+        add("identity", "Commit Identity…", self._identity, available=idle)
+        add("connections", "Connection Setup…", self._connections, available=idle)
+        add("support", "Export Support Bundle…", self._export_diagnostics, available=idle)
+        add("about", "About GitQt", self._about)
+        add("palette", "Command Palette…", self._open_command_palette, shortcut="Ctrl+Shift+P")
+        add("refs", "Branches and Tags…", view._open_ref_manager, available=ready)
+        add("remotes", "Remotes…", view._open_remotes, available=ready)
+        add("recovery", "Recovery…", view._open_recovery, available=ready)
+        add("compare", "Compare Revisions…", view._open_comparison, available=ready)
+        add(
+            "working_tree",
+            "Show Working Tree",
+            lambda: view._tabs.setCurrentIndex(0),
+            available=ready,
+        )
+        add("history", "Show History", lambda: view._tabs.setCurrentIndex(1), available=ready)
+        add(
+            "compose",
+            "Focus Commit Message",
+            self._focus_composer,
+            available=ready,
+            shortcut="Ctrl+Alt+C",
+        )
+        add(
+            "commit",
+            "Commit",
+            tree._commit_btn.click,
+            available=lambda: ready() and tree._commit_btn.isEnabled(),
+            shortcut="Ctrl+Return",
+        )
+        add(
+            "stage",
+            "Stage Selected Files",
+            tree._stage_btn.click,
+            available=lambda: ready() and bool(tree._unstaged_list.selectedItems()),
+            shortcut="Ctrl+Shift+S",
+        )
+        add(
+            "unstage",
+            "Unstage Selected Files",
+            tree._unstage_btn.click,
+            available=lambda: ready() and bool(tree._staged_list.selectedItems()),
+            shortcut="Ctrl+Shift+U",
+        )
+        add(
+            "cancel",
+            "Cancel Current Operation",
+            view._jobs.cancel,
+            available=lambda: view._jobs.busy and view._jobs.cancellable,
+        )
+        view._jobs.busy_changed.connect(self._commands.refresh)
+        tree._staged_list.itemSelectionChanged.connect(self._commands.refresh)
+        tree._unstaged_list.itemSelectionChanged.connect(self._commands.refresh)
+        tree._summary_input.textChanged.connect(self._commands.refresh)
+        tree.working_tree_changed.connect(self._commands.refresh)
+        tree.commit_succeeded.connect(self._commands.refresh)
+        tree.command_state_changed.connect(self._commands.refresh)
 
     def _setup_menu(self):
         application = self.menuBar().addMenu("Application")
-        application.addAction("Preferences…", self._repository_view._open_settings_dialog)
-        application.addAction("Commit Identity…", self._identity)
-        application.addAction("Connection Setup…", self._connections)
-        application.addAction("Export Support Bundle…", self._export_diagnostics)
-        application.addAction("About GitQt", self._about)
+        for key in (
+            "open",
+            "preferences",
+            "identity",
+            "connections",
+            "support",
+            "palette",
+            "about",
+        ):
+            application.addAction(self._commands.action(key))
         repository = self.menuBar().addMenu("Repository")
-        repository.addAction("Branches and Tags…", self._repository_view._open_ref_manager)
-        repository.addAction("Remotes…", self._repository_view._open_remotes)
-        repository.addAction("Recovery…", self._repository_view._open_recovery)
-        self._repository_view._jobs.busy_changed.connect(
-            lambda busy: self.menuBar().setEnabled(not busy)
-        )
+        for key in ("refresh", "refs", "remotes", "compare", "recovery", "cancel"):
+            repository.addAction(self._commands.action(key))
+        workflow = self.menuBar().addMenu("Working Tree")
+        for key in ("working_tree", "history", "compose", "stage", "unstage", "commit"):
+            workflow.addAction(self._commands.action(key))
+        for menu in (application, repository, workflow):
+            menu.aboutToShow.connect(self._commands.refresh)
+        self._commands.refresh()
+
+    def _open_command_palette(self):
+        CommandPalette(self._commands, self).exec()
+
+    def _focus_composer(self):
+        self._repository_view._tabs.setCurrentIndex(0)
+        self._repository_view._working_tree._summary_input.setFocus()
 
     def _about(self):
         from gitqt import __version__
@@ -195,14 +272,20 @@ class MainWindow(QMainWindow):
         repo_name = Path(resolved).name or resolved
         self.setWindowTitle(f"GitQt — {repo_name}")
         self._stack.setCurrentWidget(self._repository_view)
+        self._commands.refresh()
 
     def _show_dashboard(self) -> None:
+        if self._repository_view._jobs.busy:
+            return
+        if not self._repository_view._working_tree.flush_draft():
+            return
         if not self._repository_view._jobs.activate(None):
             return
         self._repository_view._history_view.invalidate_jobs()
         self.setWindowTitle("GitQt")
         self._dashboard.refresh()
         self._stack.setCurrentWidget(self._dashboard)
+        self._commands.refresh()
 
     def _refresh_current(self) -> None:
         if self._stack.currentWidget() is self._repository_view and self._active_repository_path:
@@ -228,6 +311,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self, "Operation Running", "Wait for the operation to finish before closing GitQt."
             )
+            event.ignore()
+            return
+        if not self._repository_view._working_tree.flush_draft():
             event.ignore()
             return
         self._repository_view._jobs.activate(None)

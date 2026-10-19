@@ -34,7 +34,7 @@ Current evidence is deliberately separated from pending acceptance:
 
 | Gate | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| Source tests | 328 passed; 3 native Windows tests skipped locally | Native CI job configured; current branch result pending | Native CI job configured; current branch result pending |
+| Source tests | 375 passed; 3 native Windows tests skipped locally | Native CI job configured; current branch result pending | Native CI job configured; current branch result pending |
 | Frozen portable smoke test | Passed locally outside the checkout | Recipe and CI command present; native acceptance pending | Recipe and CI command present; native acceptance pending |
 | Installer payload/lifecycle | Isolated-root Debian install, same-version reinstall, packaged smoke, and removal passed locally; clean-machine and old-to-new upgrade checks remain pending | Inno Setup recipe present; clean-machine lifecycle pending | DMG recipe present; clean-machine lifecycle pending |
 | Real provider credentials and platform helper/keychain | Pending | Pending | Pending |
@@ -47,7 +47,7 @@ The local source acceptance command is:
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
-The latest local Linux release verification used system Python 3.12.3, PyInstaller 6.22.3, PySide6 6.12.0, Git 2.43.0, and glibc 2.39 on Ubuntu 24.04 x86_64. The 328 source tests passed with three native Windows tests skipped. The frozen directory and the application installed under a disposable Debian package root both passed `--version` and `--smoke-test` outside the checkout with `PYTHONPATH` unset. The package was then removed from that isolated root while a settings sentinel remained. This does not install or remove the package in the build host's package database.
+The Linux build environment uses system Python 3.12.3, PyInstaller 6.22.3, PySide6 6.12.0, Git 2.43.0, and glibc 2.39 on Ubuntu 24.04 x86_64. P2 batch 1 source acceptance passes 375 tests with three native Windows tests skipped, using the development Python 3.13.5 / PySide6 6.11.0 environment. The refreshed frozen executable includes the comparison, draft, and command modules and passes its packaged smoke test. The following isolated Debian lifecycle evidence was established in the preceding P1 delivery: The frozen directory and the application installed under a disposable Debian package root both passed `--version` and `--smoke-test` outside the checkout with `PYTHONPATH` unset. The package was then removed from that isolated root while a settings sentinel remained. This does not install or remove the package in the build host's package database.
 
 The release workflow performs the documented build commands above, then runs the frozen executable from the runner's temporary directory with `PYTHONPATH` unset. CI also exercises Debian install/reinstall/removal under an isolated package root, Windows per-user installer/reinstaller/uninstaller, and macOS application copy/recopy/removal with retained-settings checks. These are same-version reinstall checks; upgrading from an older version remains a separate gate. A successful recipe or CI upload is review evidence; it does not satisfy the clean-machine, provider, signing, or publisher-audit gates below.
 

@@ -4,11 +4,13 @@ import json
 import os
 import tempfile
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
+from weakref import ref
 
 
 class SettingsError(RuntimeError):
@@ -18,7 +20,7 @@ class SettingsError(RuntimeError):
 DEFAULT_UI_FONT_FAMILY = "Inter"
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, weakref_slot=True)
 class AppSettings:
     settings_version: int = 4
     recent_repositories: list[str] = field(default_factory=list)
@@ -35,6 +37,39 @@ class AppSettings:
 _LOCKS = defaultdict(RLock)
 
 
+@contextmanager
+def locked_file(path: Path):
+    """Serialize transactions using a stable sidecar, even when data is replaced.
+
+    Advisory locks are released by the OS on process exit. Every reader takes
+    the same lock because loading damaged data can restore a backup.
+    """
+    path = path.resolve()
+    with _LOCKS[str(path)]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.with_name(path.name + ".lock").open("a+b") as lock:
+            if os.name == "nt":
+                import msvcrt
+
+                if lock.seek(0, os.SEEK_END) == 0:
+                    lock.write(b"\0")
+                    lock.flush()
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 class SettingsStore:
     """Load and save application settings as JSON."""
 
@@ -43,11 +78,20 @@ class SettingsStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.warning: str | None = None
-        self._lock = _LOCKS[str(path.resolve())]
+        self._baselines: dict[int, tuple[ref, dict[str, Any]]] = {}
 
     def load(self) -> AppSettings:
-        with self._lock:
-            return self._load()
+        with locked_file(self.path):
+            settings = self._load()
+            self._remember(settings)
+            return settings
+
+    def _remember(self, settings: AppSettings) -> None:
+        identity = id(settings)
+        self._baselines[identity] = (
+            ref(settings, lambda _: self._baselines.pop(identity, None)),
+            asdict(settings),
+        )
 
     def _load(self) -> AppSettings:
         if not self.path.exists():
@@ -119,25 +163,49 @@ class SettingsStore:
                 temporary.unlink(missing_ok=True)
 
     def save(self, settings: AppSettings) -> None:
-        with self._lock:
-            settings.settings_version = self.CURRENT_VERSION
-            content = (json.dumps(asdict(settings), indent=2, sort_keys=True) + "\n").encode()
-            if self.path.exists():
-                previous = self.path.read_bytes()
-                try:
-                    valid = isinstance(json.loads(previous), dict)
-                except ValueError:
-                    valid = False
-                if valid:
-                    self._atomic_write(self.path.with_suffix(self.path.suffix + ".bak"), previous)
-            self._atomic_write(self.path, content)
+        with locked_file(self.path):
+            # A loaded object is a snapshot. Merge only its edited fields into
+            # the latest disk state so another process's disjoint edits survive.
+            baseline = self._baselines.get(id(settings))
+            if baseline is not None:
+                latest = self._load()
+                for name, value in asdict(settings).items():
+                    if value != baseline[1][name]:
+                        setattr(latest, name, value)
+                for name, value in asdict(latest).items():
+                    setattr(settings, name, value)
+            self._save(settings)
+            self._remember(settings)
+
+    def _save(self, settings: AppSettings) -> None:
+        settings.settings_version = self.CURRENT_VERSION
+        content = (json.dumps(asdict(settings), indent=2, sort_keys=True) + "\n").encode()
+        if self.path.exists():
+            previous = self.path.read_bytes()
+            if previous == content:
+                return
+            try:
+                valid = isinstance(json.loads(previous), dict)
+            except ValueError:
+                valid = False
+            if valid:
+                self._atomic_write(self.path.with_suffix(self.path.suffix + ".bak"), previous)
+        self._atomic_write(self.path, content)
 
     def update(self, **changes) -> AppSettings:
-        with self._lock:
-            settings = self._load()
+        def apply(settings: AppSettings) -> None:
             for name, value in changes.items():
                 setattr(settings, name, value)
-            self.save(settings)
+
+        return self.mutate(apply)
+
+    def mutate(self, apply: Callable[[AppSettings], None]) -> AppSettings:
+        """Run a read/modify/write transaction against the latest disk state."""
+        with locked_file(self.path):
+            settings = self._load()
+            apply(settings)
+            self._save(settings)
+            self._remember(settings)
             return settings
 
     def _migrate_payload(self, payload: dict[str, Any]) -> dict[str, Any]:

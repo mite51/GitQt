@@ -7,6 +7,7 @@ from gitqt.parsers.diff import DiffHunk
 from gitqt.parsers.status import WorkingTreeEntry, WorkingTreeState
 from gitqt.services.commit import CommitAuthor, CommitService
 from gitqt.services.conflict import ConflictService, ConflictSnapshot
+from gitqt.services.drafts import DraftStore
 from gitqt.services.external_tools import ExternalToolService
 from gitqt.services.git import GitCommandFailure
 from gitqt.services.status import DiffPreview, StatusService, WorkingTreeSnapshot
@@ -62,6 +63,7 @@ class WorkingTreeViewModel:
         external_tool_service: ExternalToolService | None = None,
         external_diff_tool_path: str | None = None,
         external_merge_tool_path: str | None = None,
+        draft_store: DraftStore | None = None,
     ) -> None:
         self._status_service = status_service
         self._commit_service = commit_service
@@ -69,6 +71,11 @@ class WorkingTreeViewModel:
         self._external_tool_service = external_tool_service
         self._external_diff_tool_path = external_diff_tool_path
         self._external_merge_tool_path = external_merge_tool_path
+        self._draft_store = draft_store
+        self._draft_identity: str | None = None
+        self._draft_target: str | None = None
+        self._amend_original: tuple[str, str] | None = None
+        self._draft_edited = False
         self.state = WorkingTreeStateModel()
 
     def fork(self) -> WorkingTreeViewModel:
@@ -78,18 +85,65 @@ class WorkingTreeViewModel:
         return model
 
     def adopt(self, model: WorkingTreeViewModel, *, keep_draft: bool = True) -> None:
+        same_repository = self.state.repository_path == model.state.repository_path
+        edited_during_open = self.state.repository_path is None and self._draft_edited
         summary, body = self.state.commit_summary, self.state.commit_body
         filters = self.state.active_filters
         self.state = model.state
         self.state.active_filters = filters
-        if keep_draft:
+        if not same_repository or not keep_draft:
+            self._draft_identity = model._draft_identity
+            self._draft_target = model._draft_target
+            self._amend_original = model._amend_original
+        if keep_draft and (same_repository or edited_during_open):
             self.state.commit_summary, self.state.commit_body = summary, body
+            if edited_during_open:
+                self._stage_draft()
         message = self.state.message
         self._apply_visibility()
         self.state.message = message
 
+    def set_repository_target(self, repository_path: str) -> None:
+        """Retain initial typing even before the first asynchronous load returns."""
+        self._draft_target = repository_path
+
+    def flush_draft(self) -> None:
+        if self._draft_store is not None:
+            if self.state.repository_path is not None or self._draft_edited:
+                self._stage_draft()
+            self._draft_store.flush()
+
+    def _stage_draft(self) -> None:
+        if self._draft_store is not None and self._draft_identity is None and self._draft_target:
+            self._draft_identity = self._draft_store.identity(self._draft_target)
+        if self._draft_store is not None and self._draft_identity is not None:
+            summary, body = self._amend_original or (
+                self.state.commit_summary,
+                self.state.commit_body,
+            )
+            self._draft_store.stage(self._draft_identity, summary, body)
+
+    def begin_amend(self) -> None:
+        self.flush_draft()
+        self._amend_original = (self.state.commit_summary, self.state.commit_body)
+
+    def end_amend(self) -> None:
+        if self._amend_original is not None:
+            self.state.commit_summary, self.state.commit_body = self._amend_original
+            self._amend_original = None
+            self.state.commit_validation_errors = []
+
     def load_repository(self, repository_path: str) -> WorkingTreeActionResult:
         if repository_path != self.state.repository_path:
+            self.flush_draft()
+            self._amend_original = None
+            self._draft_target = repository_path
+            self._draft_identity = (
+                self._draft_store.identity(repository_path) if self._draft_store else None
+            )
+            self.state.commit_summary, self.state.commit_body = (
+                self._draft_store.load(self._draft_identity) if self._draft_store else ("", "")
+            )
             self.state.selected_file = None
             self.state.selected_diff = []
             self.state.selected_preview = DiffPreview([])
@@ -264,8 +318,11 @@ class WorkingTreeViewModel:
                 message="Commit workflow is unavailable because Git is not configured.",
             )
         validation = self._commit_service.validate_message(summary, body)
-        self.state.commit_summary = validation.summary
-        self.state.commit_body = validation.body
+        self._draft_edited = True
+        self.state.commit_summary = summary
+        self.state.commit_body = body
+        if self._amend_original is None:
+            self._stage_draft()
         self.state.commit_validation_errors = list(validation.errors)
         if validation.is_valid:
             return WorkingTreeActionResult(success=True, message="Commit message is valid.")
@@ -315,13 +372,21 @@ class WorkingTreeViewModel:
             self.state.message = result.message
             return WorkingTreeActionResult(success=False, message=result.message)
 
-        self.state.commit_summary = ""
-        self.state.commit_body = ""
+        if amend and self._amend_original is not None:
+            self.end_amend()
+        else:
+            self.state.commit_summary = ""
+            self.state.commit_body = ""
         self.state.commit_validation_errors = []
+        draft_warning = ""
+        try:
+            self.flush_draft()
+        except OSError as exc:
+            draft_warning = f" Commit draft could not be saved: {exc}"
         self._refresh_after_change(selected_path=None)
         self.state.message = (
             f"Commit {result.commit_hash} created." if result.commit_hash else "Commit created."
-        )
+        ) + draft_warning
         return WorkingTreeActionResult(success=True, message=self.state.message)
 
     def launch_external_diff_for_selected_file(self) -> WorkingTreeActionResult:

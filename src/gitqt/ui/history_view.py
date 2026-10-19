@@ -1035,6 +1035,7 @@ class HistoryView(QWidget):
     """Commit history graph and details panel."""
 
     commit_selected = Signal(str)
+    compare_commit_requested = Signal(str)
     checkout_commit_requested = Signal(str)
     create_branch_from_commit_requested = Signal(str)
     create_tag_at_commit_requested = Signal(str)
@@ -1643,6 +1644,13 @@ class HistoryView(QWidget):
 
         def emit_commit(signal):
             return lambda _checked=False: signal.emit(row.commit_short_hash)
+
+        compare_action = menu.addAction("Inspect commit and compare…")
+        compare_action.triggered.connect(
+            lambda _checked=False: self.compare_commit_requested.emit(
+                row.commit_full_hash or row.commit_short_hash
+            )
+        )
 
         checkout_action = menu.addAction("Checkout commit")
         checkout_action.triggered.connect(emit_commit(self.checkout_commit_requested))

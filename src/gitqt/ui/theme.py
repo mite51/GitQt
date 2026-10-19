@@ -192,6 +192,7 @@ QTreeWidget::item, QListWidget::item {
 }
 QTreeWidget::item:selected, QListWidget::item:selected {
     background: #45475a;
+    color: #cdd6f4;
 }
 QTreeWidget::item:hover, QListWidget::item:hover {
     background: #313244;

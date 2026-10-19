@@ -8,7 +8,7 @@ tools, branch-path splitting in the sidebar, and crash-report opt-in.
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -48,10 +48,13 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("GitQt Settings")
         self.setMinimumWidth(680)
         self._store = store
-        self._settings = settings
+        self._settings = replace(settings)
         self._jobs = SessionJobs(parent=self)
 
         self._build_ui()
+        # Compare against what controls actually displayed (for example a
+        # rounded slider value), so saving another field cannot change it.
+        self._form_baseline = self._form_settings()
 
     # -----------------------------------------------------------------------
 
@@ -171,11 +174,11 @@ class SettingsDialog(QDialog):
 
     # -----------------------------------------------------------------------
 
-    def _on_save(self) -> None:
+    def _form_settings(self) -> AppSettings:
         font_family = self._font_combo.currentFont().family().strip()
         if not font_family:
             font_family = DEFAULT_UI_FONT_FAMILY
-        updated = replace(
+        return replace(
             self._settings,
             git_executable=self._git_input.text().strip() or None,
             external_diff_tool=self._diff_input.text().strip() or None,
@@ -185,6 +188,9 @@ class SettingsDialog(QDialog):
             history_row_alpha=self._alpha_slider.value() / 100.0,
             ui_font_family=font_family,
         )
+
+    def _on_save(self) -> None:
+        updated = self._form_settings()
         self._save_button.setEnabled(False)
         self._validation.setText("Validating Git…")
 
@@ -200,11 +206,12 @@ class SettingsDialog(QDialog):
             return version
 
         def apply(version):
-            from dataclasses import asdict
-
-            changes = asdict(updated)
+            baseline = asdict(self._form_baseline)
+            changes = {
+                key: value for key, value in asdict(updated).items() if value != baseline[key]
+            }
             for key in ("recent_repositories", "last_repository", "settings_version"):
-                changes.pop(key)
+                changes.pop(key, None)
             saved = self._store.update(**changes)
             self._settings = saved
             self.settings_saved.emit(saved)

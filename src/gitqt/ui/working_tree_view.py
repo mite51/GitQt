@@ -49,6 +49,7 @@ class WorkingTreeView(QWidget):
     external_diff_requested = Signal()
     external_merge_requested = Signal()
     commit_succeeded = Signal()
+    command_state_changed = Signal()
     working_tree_changed = Signal()
     operation_action_requested = Signal(str, str)
     action_message = Signal(str)
@@ -66,6 +67,12 @@ class WorkingTreeView(QWidget):
         self._search_debounce.setSingleShot(True)
         self._search_debounce.setInterval(self._SEARCH_DEBOUNCE_MS)
         self._search_debounce.timeout.connect(self._commit_search_change)
+        self._draft_notices: set[str] = set()
+        self._last_draft_error: str | None = None
+        self._draft_status_timer = QTimer(self)
+        self._draft_status_timer.setInterval(1000)
+        self._draft_status_timer.timeout.connect(self._report_draft_status)
+        self._draft_status_timer.start()
         self._last_staged_signature: tuple[tuple[str, str], ...] | None = None
         self._last_unstaged_signature: tuple[tuple[str, str], ...] | None = None
 
@@ -345,8 +352,6 @@ class WorkingTreeView(QWidget):
             if not result.success:
                 QMessageBox.warning(self, f"{label} Failed", result.message)
             elif commit:
-                self._summary_input.clear()
-                self._body_input.clear()
                 self._amend_draft = None
                 self._amend_btn.setChecked(False)
                 self.commit_succeeded.emit()
@@ -359,8 +364,44 @@ class WorkingTreeView(QWidget):
 
         self._jobs.write(run, apply, error)
 
+    def flush_draft(self) -> bool:
+        if self._view_model is None:
+            return True
+        try:
+            self._view_model.flush_draft()
+        except OSError as exc:
+            self.action_message.emit(f"Unable to save commit draft: {exc}")
+            return False
+        self._report_draft_status()
+        return True
+
+    def _report_draft_status(self) -> None:
+        store = self._view_model._draft_store if self._view_model is not None else None
+        if store is None:
+            return
+        if store.warning and store.warning not in self._draft_notices:
+            self._draft_notices.add(store.warning)
+            self.action_message.emit(store.warning)
+        if store.last_error:
+            if store.last_error != self._last_draft_error:
+                self.action_message.emit(store.last_error)
+            self._status_label.setText(f"Commit draft not saved: {store.last_error}")
+        elif self._last_draft_error:
+            self._status_label.setText(self._view_model.state.message)
+        self._last_draft_error = store.last_error
+
+    def closeEvent(self, event) -> None:
+        if not self.flush_draft():
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def set_view_model(self, vm: WorkingTreeViewModel) -> None:
         if vm is not self._view_model:
+            if not self.flush_draft():
+                return
+            if self._view_model is not None:
+                self._view_model.end_amend()
             self._amend_draft = None
             self._amend_preview = None
             self._amend_btn.blockSignals(True)
@@ -387,6 +428,7 @@ class WorkingTreeView(QWidget):
             return
 
         state = self._view_model.state
+        self._sync_composer()
         self._status_label.setText(
             self._status_label.fontMetrics().elidedText(
                 state.message, Qt.TextElideMode.ElideMiddle, 400
@@ -454,6 +496,9 @@ class WorkingTreeView(QWidget):
             self._validation_label.setVisible(True)
         else:
             self._validation_label.setVisible(False)
+
+        self._report_draft_status()
+        self.command_state_changed.emit()
 
     def _populate_file_lists(self, state: WorkingTreeStateModel) -> None:
         search = self._search_text.lower()
@@ -739,21 +784,39 @@ class WorkingTreeView(QWidget):
         else:
             self._validation_label.setVisible(False)
 
+    def _sync_composer(self) -> None:
+        if self._view_model is None:
+            return
+        state = self._view_model.state
+        self._summary_input.blockSignals(True)
+        self._body_input.blockSignals(True)
+        try:
+            if self._summary_input.text() != state.commit_summary:
+                self._summary_input.setText(state.commit_summary)
+            if self._body_input.toPlainText() != state.commit_body:
+                self._body_input.setPlainText(state.commit_body)
+        finally:
+            self._summary_input.blockSignals(False)
+            self._body_input.blockSignals(False)
+
     def _on_amend_toggled(self, enabled):
         self._jobs.invalidate_channel("amend")
         self._amend_preview = None
         self._summary_input.setMaxLength(10000 if enabled else 72)
+        vm = self._view_model
         if not enabled:
-            if self._amend_draft is not None:
-                self._summary_input.setText(self._amend_draft[0])
-                self._body_input.setPlainText(self._amend_draft[1])
+            if vm is not None:
+                vm.end_amend()
             self._amend_draft = None
             self._sync_from_state()
             return
-        vm = self._view_model
         if vm is None or vm._commit_service is None or vm.state.repository_path is None:
             self._amend_btn.setChecked(False)
             return
+        if not self.flush_draft():
+            self._amend_btn.setChecked(False)
+            return
+        vm.begin_amend()
         draft = (self._summary_input.text(), self._body_input.toPlainText())
         self._amend_draft = draft
         self._commit_btn.setEnabled(False)
@@ -770,6 +833,7 @@ class WorkingTreeView(QWidget):
                 + ". This rewrites history; remote status reflects the last fetch."
             )
             self._commit_btn.setEnabled(vm.state.commit_enabled)
+            self.command_state_changed.emit()
 
         def failed(error):
             self._amend_btn.setChecked(False)

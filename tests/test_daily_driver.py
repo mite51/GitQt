@@ -147,7 +147,8 @@ def test_amend_ui_preloads_and_warns_for_published_commit(app, repo, runner, tmp
     composer._do_commit()
     assert "origin/main" in warnings[0]
     assert git(repo, "log", "-1", "--format=%s").stdout == b"Updated initial\n"
-    assert composer._summary_input.text() == ""
+    # Amending consumed the amended message, not the unrelated ordinary draft.
+    assert composer._summary_input.text() == "Preserved draft"
     assert not composer._amend_btn.isChecked()
     view._observe_timer.stop()
     view.close()

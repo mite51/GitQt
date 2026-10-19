@@ -18,9 +18,21 @@ Use **New Repository** on the dashboard to choose a new/empty directory, initial
 
 Enable **Amend** to preload the latest commit message. You can change just its message without staging files; staged changes are included when present. Disabling Amend restores your previous draft. Confirmation identifies known remote refs containing the commit, based on the last fetch. The old commit is retained in Recovery, and a changed HEAD requires a fresh preview.
 
+## Comparing changes
+
+Use **Repository → Compare Revisions** to compare two refs/commits, a commit against staged changes, or a commit against the tracked working tree. Use `INDEX` as the base with **Working tree** to review unstaged changes. Untracked files are excluded from this comparison; preview them in Working Tree. **Direct endpoints** compares the selected base to the target. **Merge base → target** starts at their common ancestor and shows the target branch’s changes. The direction and resolved commits remain visible.
+
+Right-click a history row and choose **Inspect commit and compare** for the full commit message and parent selection; root commits compare against an empty tree. The comparison window offers side-by-side and word highlighting, whitespace/context controls, find, and next-change navigation. These are read-only display options and never change staging patches. Binary/images and unsupported encodings show an explanation or metadata instead of an editable preview; large previews and expensive highlighting are bounded. If staged or working-tree content changes after the file list loads, press **Compare** to refresh.
+
+## Commit drafts and commands
+
+Ordinary commit drafts are saved in the background and restored separately for each repository and linked worktree. Switching repositories or closing the app flushes pending text; a save failure keeps the view open and reports the error. Amend preserves the ordinary draft, including after a successful amend. A normal successful commit clears its draft. Concurrent edits to the same worktree preserve overwritten text in a uniquely named `drafts.json.conflict-…` file in the application configuration directory, with its location in the operation log. Copy the desired summary/body from that file to recover it. Drafts and their backups remain local and are excluded from support bundles.
+
+**Application → Command Palette** (`Ctrl/Cmd+Shift+P`) searches the shared menu commands. Shortcuts include Open (`Ctrl/Cmd+O`), Refresh (`F5`), focus the commit message (`Ctrl/Cmd+Alt+C`), Commit (`Ctrl/Cmd+Return`), Stage Selected (`Ctrl/Cmd+Shift+S`), and Unstage Selected (`Ctrl/Cmd+Shift+U`). Commands respect the active repository and operation state. Shortcut customization and the wider accessibility audit remain planned.
+
 ## Settings and diagnostics
 
-Settings save atomically, with a previous-good backup. Damaged settings are preserved in a `.corrupt-…` file and recovered from the backup where possible; the dashboard explains the recovery. **Application → Export Support Bundle** writes version information and sanitized, bounded application logs to a local ZIP. It excludes settings and repository contents. Review before sharing: local paths can still appear. **Application → About GitQt** shows the version and update approach.
+Settings save atomically, with a previous-good backup and process coordination. Edits to different preferences and concurrent recent-repository additions are preserved. Damaged settings are preserved in a `.corrupt-…` file and recovered from the backup where possible; the dashboard explains the recovery. **Application → Export Support Bundle** writes version information and sanitized, bounded application logs to a local ZIP. It excludes settings and repository contents. Review before sharing: local paths can still appear. **Application → About GitQt** shows the version and update approach.
 
 ## Development
 

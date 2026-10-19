@@ -5,6 +5,11 @@ All notable changes to `GitQt` should be documented in this file.
 ## Unreleased
 
 ### Added
+- Added read-only revision/merge-base/staged/worktree comparisons with complete ref choices, full commit messages, merge-parent selection, side-by-side/word highlighting, whitespace/context controls, search, change navigation, and explicit large/binary/encoding fallbacks. Existing partial staging patch semantics are unchanged.
+- Added durable repository/worktree commit drafts, background saving, navigation/close flushes, amend preservation, and conflict copies for concurrent edits. Successful Git commits remain successful if draft persistence subsequently fails.
+- Coordinated settings transactions across processes; stale preference dialogs and concurrent recent-repository updates preserve unrelated changes.
+- Added shared menu/keyboard commands and a searchable command palette, with availability checks and asynchronous amend state synchronization; corrected selected-list contrast.
+- Reconciled stale P2 backlog evidence and recorded the remaining staged delivery plan. P2 batch 1 passes 375 tests (47 additional passing checks), with three native Windows tests skipped on Linux; lint, formatting, independent review, and the refreshed Linux executable smoke pass.
 - Fixed activation callbacks surviving destroyed views, draft replacement during model switching, rename preview/unstage, and recovery before the initial commit.
 - Protected external merge from unsafe filename expansion and hard reset from unbacked submodule data loss; added real-repository regressions.
 - Added Windows Job Object ownership before command execution, bounded descendant cleanup, and native Windows regression tests; native execution remains a release gate.

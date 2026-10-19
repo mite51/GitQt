@@ -1,6 +1,6 @@
 # GitQt feature gaps and technical debt
 
-Reviewed: 2026-10-12. Target: a complete, local-first desktop Git client with the everyday workflow coverage users associate with GitKraken Desktop.
+Reviewed: 2026-10-17. Target: a complete, local-first desktop Git client with the everyday workflow coverage users associate with GitKraken Desktop.
 
 This backlog comes from inspecting the implementation, UI wiring, tests, product requirements, and release configuration, with GitKraken's official documentation as a comparison. It distinguishes missing features from partially implemented workflows. Some larger items are explicitly deferred by `PRD.md`; they are future product scope, not failures to deliver the original MVP. Priorities are recommendations for GitQt, not a requirement to copy every GitKraken feature.
 
@@ -58,9 +58,9 @@ Implemented the daily-driver workflows and distribution foundations. The origina
 | TD-12 | Linux artifacts built and smoke-tested; native release acceptance pending | Standalone app and credential helper, bundled Qt/plugins/fonts/icons, reproducible Linux/Windows portable archives, Debian installer/desktop entry, Windows Inno Setup recipe, macOS app/DMG recipe, native lifecycle CI gates, version/tag consistency checks, final checksum verification, license/notices inventory, and source/wheel builds. Isolated-root Debian install/reinstall/removal passes locally. Old-to-new upgrade, Windows/macOS execution, publisher signing/notarization, clean-machine desktop acceptance, and corresponding-source/dependency-license audit remain release gates in `RELEASE.md`. No public release or automatic updater. |
 | TD-13 | Implemented | Dashboard New Repository with configurable initial branch and optional uncommitted README/.gitignore; asynchronous Git-based discovery normalizes subfolders and supports linked worktrees. Empty repositories show their unborn branch correctly. Bare repositories are explicitly rejected with guidance; broken Git metadata reports a validation error. |
 | TD-14 | Implemented for documented single-destination workflows | Branch rename, upstream setting, tracking checkout, remote branch deletion; local tag inspection/checkout/deletion/push and remote tag loading/deletion. Sidebar actions and Repository → Branches and Tags expose the workflows. Remote deletion retains the exact object and uses an explicit lease against the captured destination URL/object. Tag recovery preserves annotated objects and creates a new tag. Existing tags are never force-overwritten by tag push. |
-| TD-18 | Amend corrections implemented; broader composer work remains | Preload the current message, restore the previous draft when leaving Amend, allow message-only amend, reject a changed HEAD, warn about known remote refs containing the commit, and retain the old commit in Recovery. Published-state detection uses locally known remote refs, with an explicit freshness caveat. Templates, signing controls, co-authors, and durable per-repository drafts remain future scope. |
+| TD-18 | Amend corrections implemented; broader composer work remains | Preload the current message, restore the previous draft when leaving Amend, allow message-only amend, reject a changed HEAD, warn about known remote refs containing the commit, and retain the old commit in Recovery. Published-state detection uses locally known remote refs, with an explicit freshness caveat. Durable drafts are delivered in P2 batch 1. Templates, signing controls, and co-authors remain future scope. |
 | TD-29 | Foundations implemented | Stable-tip history pagination fetches new pages, with a 5,000-row view limit; bounded LRU caches and explicit 2 MB / 10,000-line diff limits; NUL-delimited affected-file parsing and literal diff paths; root/first-parent merge coverage; no Qt filter deprecation warnings. A repeatable 5,000-commit benchmark establishes initial budgets. Larger branching graphs, non-UTF-8 paths, network filesystems, total GUI/process memory, and native OS/Git-version acceptance remain open. |
-| TD-30 | Foundations implemented | Atomic/fsynced settings replacement and previous-good backup, preserved corrupt-file recovery with a visible notice, fresh preference updates that preserve recents, bounded rotating logs with command duration/exit status, redacted log/trace output, and an opt-in sanitized local support ZIP. History failures remain visible instead of becoming empty results. Cross-process settings coordination and broader actionable-error UX remain future work. |
+| TD-30 | Foundations implemented | Atomic/fsynced settings replacement and previous-good backup, preserved corrupt-file recovery with a visible notice, fresh preference updates that preserve recents, bounded rotating logs with command duration/exit status, redacted log/trace output, and an opt-in sanitized local support ZIP. History failures remain visible instead of becoming empty results. Cross-process settings coordination is delivered in P2 batch 1; broader actionable-error UX remains future work. |
 
 Validation: **258 tests passed** (**28 added** in this step), including real-repository GUI workflows, stale remote deletion leases, message-only amend, root/merge/unusual-path history, output limits, interrupted settings writes, and sanitized export. Repository-wide Ruff and Black checks pass. Offscreen visual inspection covered the creation and branch/tag dialogs. The standalone Linux executable and extracted Debian payload pass the packaged smoke test outside the checkout, including their bundled credential helper. Linux benchmark: 81.6 ms first page, 27.8 ms next page, 47.3 ms layout of 5,000 rows, 5.0 MiB traced Python peak. Native desktop/provider acceptance remains explicitly open; see `RELEASE.md`.
 
@@ -70,7 +70,7 @@ The gap-closure delivery passes **328 tests**, with **3 native Windows tests ski
 
 | Area | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| Source test suite | 328 passed; 3 native Windows tests skipped locally | CI configured; current branch run pending | CI configured; current branch run pending |
+| Source test suite | 375 passed; 3 native Windows tests skipped locally | CI configured; current branch run pending | CI configured; current branch run pending |
 | Portable application | Built and smoke-tested locally outside the checkout | Build recipe/CI only; native artifact acceptance pending | Build recipe/CI only; native artifact acceptance pending |
 | Installer | Isolated-root install, same-version reinstall, packaged smoke, removal, and retained-settings check passed locally; old-to-new and clean-machine checks pending | Inno Setup recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending | DMG recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending |
 | Real HTTPS/SSH provider authentication and platform credential storage | Pending | Pending | Pending |
@@ -80,6 +80,12 @@ The gap-closure delivery passes **328 tests**, with **3 native Windows tests ski
 
 Evidence commands and release gates are maintained in `RELEASE.md`. No row above implies a public release or automatic updater.
 
+
+## Implementation progress — P2 batch 1 (steps 0–2)
+
+Delivered the reconciled backlog, durable repository/worktree drafts, cross-process settings/recent-repository transactions, shared menu/shortcut/palette commands, and TD-15/TD-20 comparisons and richer review. Original staging patches remain unchanged. Amend now restores its ordinary draft after success. Comparison refs are pinned to commits; changed mutable endpoints require refresh. Binary/images and unsupported encodings have explicit fallback; large previews and highlighting are bounded.
+
+Validation: **375 tests passed, 3 native Windows tests skipped on Linux** (47 additional passing tests). Repository-wide Ruff, Black (123 Python files), and whitespace checks pass. Independent review reproduced and verified fixes for draft loading/concurrent-edit races, successful-commit persistence failures, stale settings overwrites, mutable comparison races, and asynchronous shortcut state. Real Qt checks cover menu/history launch and keyboard staging; the comparison view was visually inspected. The refreshed Linux executable includes the new modules and passes its packaged smoke test. Native Windows settings locks and broader platform/release gates remain unverified locally. This completes the first P2 batch, not all P2 items; TD-19 history investigation is next.
 
 ## Priorities
 
@@ -189,59 +195,80 @@ Evidence commands and release gates are maintained in `RELEASE.md`. No row above
 
 ## P2 — Complete desktop-client coverage
 
+### P2 delivery baseline and plan
+
+This section was reconciled against commit `0945cdf` after the **328 passed, 3 native-Windows tests skipped on Linux** baseline. P2 is not complete. A checked item means the documented UI workflow and its regression coverage exist; foundations and partial slices remain unchecked until the full item acceptance is met.
+
+- [x] **TD-13 / TD-14:** repository initialization/discovery and the documented single-destination branch/tag workflows.
+- [x] **Shared prerequisites:** durable repository/worktree drafts with conflict preservation, shared menu/shortcut/palette commands, and cross-process settings/recent-repository coordination. Delivered in P2 batch 1; wider session restoration and accessibility remain below.
+- [x] **TD-15 / TD-20:** read-only endpoint/merge-base/index/tracked-worktree comparisons, side-by-side/word highlighting, whitespace/context/find/change controls, full messages, root/merge-parent selection, bounded text previews, and explicit binary/image/encoding fallback. Native platform acceptance remains separate.
+- [ ] **TD-19:** repository-wide search, complete ref choices, rename-aware file history, and blame/navigation. This can proceed independently once shared history query/result types are agreed with TD-15.
+- [ ] **TD-18:** finish templates, co-authors, signing setup/status, and actionable signing/hook failures. Durable drafts are delivered. Amend preload, message-only amend, stale-HEAD protection, published-history warning, and recovery are delivered.
+- [ ] **TD-21 / TD-22:** deliver file/ignore/restore/launcher and patch exchange, with an explicit binary-patch policy, together with stash inspection, selective stash/restore, inclusion/state controls, conflict handling, and stash-to-branch. Share diff selection and recovery contracts; service work can be split between file/patch and stash slices.
+- [ ] **TD-17:** build the integrated conflict editor on the existing persistent operation lifecycle, with side semantics, editable result validation, staging, and explicit fallbacks.
+- [ ] **TD-16:** add previewed interactive rebase and ordered multi-commit actions after comparison/conflict contracts stabilize, including published-history and merge/mainline behavior.
+- [ ] **TD-23 / TD-27:** pair worktree lifecycle with repository tabs/session restoration so shared repositories, drafts, refresh, and busy state have one ownership model. Worktree service and tab/session UI can be independent until integration.
+- [ ] **TD-24:** add submodule status and lifecycle UI, preserving gitlink boundaries and nested-repository safety.
+- [ ] **TD-25:** add LFS dependency/pointer/pattern detection, setup and track/untrack, transfer visibility, locks, and a separate migration workflow.
+- [ ] **TD-26:** define the GitHub-first provider integration before implementation, covering authentication, enterprise endpoints, PR/review/build workflows, and provider-optional local operation.
+- [ ] **TD-28:** shared actions, core shortcuts, and command palette are delivered. Finish shortcut customization, remaining operation shortcuts, focus/accessibility metadata, scaling, contrast, and light/system themes; perform keyboard-only and assistive-technology acceptance.
+- [ ] **TD-29 / TD-30:** continue performance, path, native-platform, diagnostics, error-state, and settings hardening throughout every slice. Their foundations are delivered, but their remaining acceptance is not complete.
+
+Useful independent divisions are: shared state/settings; compare/diff; history investigation; composer/signing; file/patch; stash; conflict editing; history editing; worktree service; tabs/session UI; submodules; LFS; provider design/integration; accessibility; and continual performance/diagnostics acceptance. Integrate through shared action, comparison, recovery, session-job, and repository-state contracts rather than duplicating them in feature views.
+
 ### TD-13 — Initialize repositories and handle repository types explicitly
 
-**Status:** Open/clone exist; init and robust repository discovery are missing.
+**Status:** Implemented.
 
-**Evidence:** `src/gitqt/ui/dashboard_view.py` has open/add/clone/remove flows, but no initialization flow. `RepositoryValidator` in `src/gitqt/services/repositories.py` recognizes filesystem shapes, including bare repositories and `.git` files, without querying Git to validate them. A single worktree-oriented workspace is used afterward.
+**Evidence:** `DashboardView` opens `InitDialog`, and `RepositoryValidator.initialize()` creates the selected initial branch plus optional uncommitted README and `.gitignore`. Git-based discovery normalizes subdirectories and linked worktrees, represents unborn branches, rejects bare repositories with guidance, and reports broken metadata. Real-repository tests cover initialization, discovery, empty repositories, linked worktrees, corrupt `.git` files, subdirectories, and bare repositories.
 
 **Done when:** Create a repository with an initial branch and optional starter files; normalize a selected subdirectory to its repository root; resolve linked worktrees correctly; and clearly support or reject bare repositories without broken worktree actions. Test corrupt `.git` references, empty repositories, subdirectories, and bare repositories.
 
 ### TD-14 — Finish branch and tag management
 
-**Status:** Basic local branch actions and tag creation exist; lifecycle coverage is incomplete.
+**Status:** Implemented for documented single-destination workflows.
 
-**Evidence:** `BranchService` has create/checkout/delete but no rename or explicit upstream-setting methods. `Sidebar` has no remote-branch checkout action and explicitly does nothing for tag context menus. `TagService` only lists and creates tags.
+**Evidence:** `RefManagementService`, `TagService`, `RefManagerDialog`, and sidebar actions expose branch rename/upstream, tracking checkout, leased remote-branch deletion, local tag inspection/checkout/deletion/push, and remote tag loading/deletion. Deletions retain recoverable objects, tag recovery creates a new tag, and tag push does not overwrite an existing tag. Real-repository and UI tests cover these boundaries.
 
 **Done when:** Rename branches; create a local tracking branch from a remote branch; change upstream; delete remote branches with safeguards; inspect/checkout/delete tags; and push/delete selected remote tags. Show tag targets and annotations. Ensure checkout of a remote branch produces the intended local tracking branch rather than an accidental detached HEAD.
 
 ### TD-15 — Compare arbitrary branches, commits, and files
 
-**Status:** Single-commit affected files/diffs exist; general comparison is missing.
+**Status:** Implemented for commit/ref, staged, and tracked-working-tree comparisons.
 
-**Evidence:** `HistoryView` uses single selection and `HistoryService` exposes graph and single-commit inspection, without a two-revision comparison API.
+**Evidence:** `ComparisonService` and `ComparisonDialog`, reached from Repository → Compare Revisions or a history-row context menu, resolve refs to commits, show comparison direction, offer direct/merge-base/parent comparisons and complete ref choices, and inspect per-file changes. Mutable endpoints reject a changed index/worktree preview and ask for refresh. `INDEX` against Working tree shows unstaged changes; untracked files remain in the Working Tree preview.
 
 **Done when:** Choose two refs/commits and inspect changed files and per-file diffs, compare a branch with its base, compare against the working tree, and explain merge-base versus direct endpoint comparisons. Show both refs and comparison direction. GitKraken's [diff documentation](https://help.gitkraken.com/gitkraken-desktop/diff/) provides a reference for revision comparison.
 
 ### TD-16 — Add visual interactive rebase and batch commit operations
 
-**Status:** Basic rebase and single-commit operations exist; visual history editing is missing.
+**Status:** Not implemented; basic rebase and single-commit operations remain available.
 
-**Evidence:** `CommitOperationsService.rebase_onto()` runs a plain rebase; history menus operate on one selected commit. `PRD.md` explicitly defers interactive rebase beyond MVP.
+**Evidence:** `CommitOperationsService.rebase_onto()` still runs a plain rebase and history actions operate on one commit. There is no sequence planner for reorder/squash/fixup/reword/drop, ordered multi-commit cherry-pick/revert, or merge/mainline handling.
 
 **Done when:** Preview a commit sequence and support reorder, squash/fixup, reword, and drop; support ordered multi-commit cherry-pick/revert; explain published-history effects and handle conflicts through TD-03. Define behavior for merge commits, including mainline-parent selection where appropriate. Use [GitKraken's interactive rebase workflow](https://help.gitkraken.com/gitkraken-desktop/interactive-rebase/) as a comparison, not an implementation constraint.
 
 ### TD-17 — Add an integrated conflict editor
 
-**Status:** External merge-tool integration exists; internal conflict resolution is missing and was excluded from MVP.
+**Status:** Not implemented; persistent operation controls and external merge tools are the current boundary.
 
-**Evidence:** Conflict UI in `src/gitqt/ui/working_tree_view.py` is a banner plus external-tool launch. `DiffView` is read-only and has no base/ours/theirs/result model.
+**Evidence:** Conflict UI remains an operation banner, whole-file staging, and external-tool launch. `DiffView` is read-only and has no base/current/incoming/result model, editable result, per-block choices, marker validation, or integrated mark-resolved flow.
 
 **Done when:** Provide base/current/incoming context, per-block selection, an editable result preview, unresolved-marker checks, and explicit mark-resolved/stage controls. Explain the meaning of each side during rebase. Provide clear handling or external fallback for binary, modify/delete, and rename conflicts. Depends on TD-03 and TD-04.
 
 ### TD-18 — Improve commit composition, amend, identity, and signing
 
-**Status:** Summary/body, amend, and sign-off exist; important refinements are missing.
+**Status:** Amend corrections and durable drafts implemented; broader composer/signing work remains open.
 
-**Evidence:** `CommitService.commit()` requires staged changes before considering amend, preventing ordinary message-only amendment. The composer does not preload the previous message or warn about amending published commits. There is no template/co-author/signing configuration UI; author metadata is read-only. Existing Git configuration may already cause signing and hooks to run.
+**Evidence:** `CommitService.prepare_amend()` and the composer preload the current message, preserve the prior draft when Amend is left, allow message-only amend, reject a changed HEAD, warn when locally known remote refs contain the commit, and retain the prior commit for Recovery. The warning states that remote knowledge may be stale. Durable drafts are scoped to repository/common directory/worktree, saved in the background, flushed on navigation/exit, and protected across amend and concurrent edits. Templates, co-author controls, and signing setup/status UI remain absent; inherited Git signing and hooks may run.
 
 **Done when:** Permit message-only amend, preload the previous message, show shared-history warnings, load configured templates, add co-author trailers, and persist drafts per repository. Offer GPG/SSH signing setup/status and actionable hook/signing failures. Preserve inherited Git behavior and integrate passphrase prompts through TD-07. GitKraken documents [templates, co-authors, and amend](https://help.gitkraken.com/gitkraken-desktop/commits/) as part of commit composition.
 
 ### TD-19 — Add file history, blame, and complete history search
 
-**Status:** Loaded commit rows can be filtered; repository-wide investigation is missing.
+**Status:** Not implemented; filtering remains limited to loaded rows.
 
-**Evidence:** `HistoryFilterProxyModel` filters summary/author/hash/refs in loaded rows. `HistoryService.get_graph()` accepts refs and a count, but no author/path/date/message search query. There are no file-history or blame services. Branch-filter choices are derived from refs observed in loaded history rows.
+**Evidence:** `HistoryFilterProxyModel` filters loaded summary/author/hash/ref text, while `HistoryService.get_graph()` accepts pagination and refs but no repository-wide author/path/date/message query. There are no rename-aware file-history or blame services, and ref choices still come from refs observed in loaded rows.
 
 **User impact:** An older matching commit or branch can be absent until enough history is loaded; an empty filtered list does not establish that the repository has no match.
 
@@ -249,89 +276,89 @@ Evidence commands and release gates are maintained in `RELEASE.md`. No row above
 
 ### TD-20 — Improve diff presentation and commit-inspection edge cases
 
-**Status:** Inline colored text hunks exist; richer review and some commit types are incomplete.
+**Status:** Implemented for bounded text review and explicit binary/image/encoding fallback.
 
-**Evidence:** `src/gitqt/ui/diff_view.py` has one nonwrapping text presentation with line-type coloring. `HistoryService.get_commit_files()` invokes `diff-tree` without `--root` or an explicit merge-parent strategy, so the initial commit has no affected files and merge review is incomplete. This is separate from TD-02's working-tree selection issue.
+**Evidence:** `HistoryService` now uses root-aware, NUL-delimited name-status parsing and a documented first-parent strategy for merge file lists/diffs, with regression coverage for root, merge, rename, and unusual paths. The separate read-only comparison renderer adds side-by-side and word highlighting, whitespace/context/find/next-change controls, heuristic syntax coloring for common code extensions, full messages, and selectable merge parents. Binary/images expose fallback metadata; unsupported encodings and oversized text have explicit explanations. Detailed highlighting has work limits. Working-tree staging keeps its exact existing patch representation.
 
 **Done when:** Support side-by-side and word-level diffs, whitespace/context controls, search and next-change navigation, optional syntax highlighting, and clear binary/image previews or fallback metadata. Show initial-commit files, full commit messages, and parent-aware merge diffs. Validate large files, encodings, CRLF, renames, and missing trailing newlines. [GitKraken's diff modes](https://help.gitkraken.com/gitkraken-desktop/diff/) illustrate the broader review experience.
 
 ### TD-21 — Add ignore rules, file actions, and patch exchange
 
-**Status:** Whole-file staging and external diff exist; common file-management actions are missing.
+**Status:** Not implemented beyond existing staging, recoverable discard, and external diff foundations.
 
-**Evidence:** `StatusService` has no ignore-rule editing, worktree restore/discard, or patch import/export API. `src/gitqt/parsers/patch.py` builds patches for staging, not user-facing patch exchange.
+**Evidence:** `StatusService` and `parsers.patch` support internal partial-stage/discard patches, but there is no ignore-rule editor, tracked/ignored explanation, editor/file-manager launcher, chosen-revision restore, or user-facing patch preview/import/export workflow.
 
 **Done when:** Ignore a file/pattern through `.gitignore` or local excludes; explain ignored/tracked state; open a file in an editor or file manager; restore a file from a chosen revision; and preview/import/export patches. Define whether binary patches are supported. Keep destructive behavior consistent with TD-01 and TD-11. Patch exchange is also covered by [GitKraken's diff workflow](https://help.gitkraken.com/gitkraken-desktop/diff/).
 
 ### TD-22 — Add stash inspection and selective stash workflows
 
-**Status:** Create/apply/pop/drop exist; inspection and selective use are missing.
+**Status:** Not implemented beyond create/apply/pop/drop and recovery retention.
 
-**Evidence:** `src/gitqt/services/stash.py` and the sidebar provide list/action flows without a stash file/diff inspector or a stash-to-branch action.
+**Evidence:** `StashService` and sidebar actions still provide list/create/apply/pop/drop only. There is no stash file/diff inspector, selected-path/change creation, selected-file restoration, stash-to-branch action, or explicit staged/untracked inclusion controls.
 
 **Done when:** Inspect stash contents before applying/dropping, stash selected paths or changes, restore selected files, and create a branch from a stash. Expose whether untracked files and staged state are included/restored. Surface apply/pop conflicts and retain recoverable stash identity; integrate with TD-03 and TD-11.
 
 ### TD-23 — Add Git worktree management
 
-**Status:** Opening a `.git`-file directory is accepted; dedicated worktree management is missing.
+**Status:** Not implemented; linked-worktree correctness exists only as a foundation.
 
-**Evidence:** Repository validation accepts `.git` files, but there is no worktree service or sidebar section.
+**Evidence:** Repository discovery, operation-state resolution, refresh metadata, and repository locks handle already-open linked worktrees correctly. There is still no worktree service/sidebar for list/create/open/remove/prune/lock/unlock, branch occupancy, or dirty-removal protection.
 
 **Done when:** List/create/open/remove/prune/lock/unlock linked worktrees; show each path and branch; explain a branch already checked out elsewhere; and protect dirty worktrees from accidental removal. Coordinate shared refs and refresh with TD-06 and TD-09. GitKraken offers [worktree management](https://help.gitkraken.com/gitkraken-desktop/worktrees/) for parallel branch workflows.
 
 ### TD-24 — Add ongoing submodule management
 
-**Status:** Recursive clone exists; lifecycle and dedicated status are missing.
+**Status:** Not implemented beyond recursive clone and safety boundaries.
 
-**Evidence:** The only explicit submodule UI is the clone dialog's `--recurse-submodules` checkbox. No submodule service or dedicated status/navigation panel exists.
+**Evidence:** The clone dialog offers recursive clone, gitlink changes avoid text partial actions, and hard reset refuses repositories containing submodules because nested worktrees are not backed up. There is no submodule service or status/navigation UI for initialize/update/sync/add/remove/open or recorded-versus-checked-out state.
 
 **Done when:** Detect submodules; show recorded versus checked-out commits and dirty/uninitialized state; open, initialize, update, sync, add, and remove them with clear nested-repository behavior. Avoid treating all gitlink changes as ordinary text files. Compare with [GitKraken's submodule support](https://help.gitkraken.com/gitkraken-desktop/submodules/).
 
 ### TD-25 — Add Git LFS detection and management
 
-**Status:** No explicit LFS support; configured Git filters may work transparently.
+**Status:** Not implemented; configured Git filters may work transparently.
 
-**Evidence:** No LFS service, detection, or controls appear in the reviewed source. `PRD.md` anticipates detection in MVP and fuller support later.
+**Evidence:** There is no LFS service, dependency/pointer/pattern detection, setup guidance, track/untrack/lock controls, migration workflow, or LFS-specific transfer state in the current source.
 
 **Done when:** Detect the LFS dependency and tracked patterns, distinguish pointer files from fetched content, offer install/setup guidance and track/untrack actions, and display fetch/pull/push progress/errors. Support locks where available, with a separate explicit workflow for history migration. See [GitKraken's LFS workflow](https://help.gitkraken.com/gitkraken-desktop/git-lfs/).
 
 ### TD-26 — Integrate hosting providers and pull requests
 
-**Status:** Git transport works; provider-specific collaboration is missing and was excluded from MVP.
+**Status:** Not implemented; Git transport and desktop credential prompting are provider-neutral foundations.
 
-**Evidence:** There are no hosting-provider API services or account/PR/issue panels. Remote URLs are used as Git transport endpoints only.
+**Evidence:** There are no provider API/account/PR/issue services or panels; remote URLs remain Git transport endpoints. The next step is an explicit GitHub-first proposal covering authentication, enterprise hosts, data model, incremental PR/review/build scope, and preservation of account-free local workflows before implementation begins.
 
 **Done when:** Start with a deliberately chosen provider: securely connect an account, browse/clone repositories, open the current repo/commit in a browser, create/check out pull requests, and show review/build status. Add diffs, comments, approvals, merges, issue linking, enterprise endpoints, and additional providers incrementally. Keep core local Git usable without a provider account. [GitKraken's pull-request workflow](https://help.gitkraken.com/gitkraken-desktop/pull-requests/) is a comparison reference.
 
 ### TD-27 — Add repository tabs, workspaces, and complete session restoration
 
-**Status:** Recent repositories and restoration of the last repository exist; workspace organization is missing.
+**Status:** Durable isolated drafts implemented; tabs, workspaces, and wider session restoration remain open.
 
-**Evidence:** `MainWindow` in `src/gitqt/ui/main_window.py` reuses one repository view. `RecentRepositoriesService` keeps a flat list capped at 20. Existing Working Tree/History tabs are views within one repository, not repository tabs.
+**Evidence:** `MainWindow` still reuses one `RepositoryView`; `RecentRepositoriesService` keeps a flat list capped at 20. Working Tree/History are views within that repository. Repository/worktree drafts now persist across restarts and retain conflicting edits from other instances. Repository tabs/groups/favorites and full tab/view/panel/selection restoration remain absent.
 
 **Done when:** Open multiple repository tabs/windows, favorite/group/search repositories, and restore open tabs, active view, panel sizes, selections, and repository-specific commit drafts. Prevent a draft from one repository carrying into another. Show useful dashboard state such as current branch, local changes, and ahead/behind counts without blocking startup. Depends on TD-06.
 
 ### TD-28 — Make common workflows accessible from the keyboard
 
-**Status:** Standard Qt controls and two explicit shortcuts exist; broader navigation and accessibility work remains.
+**Status:** Shared actions, core shortcuts, and a command palette implemented; customization and full accessibility acceptance remain open.
 
-**Evidence:** `MainWindow._setup_shortcuts()` defines Ctrl+O and F5 only. The custom graph/pills and dark theme have no dedicated accessibility verification in the reviewed tests. Existing diff +/- markers provide non-color information and should be retained.
+**Evidence:** `CommandRegistry` shares availability-checked actions across menus, shortcuts, and a searchable command palette. Core open/refresh/compose/commit/stage/unstage shortcuts have real-UI coverage, including asynchronous amend state. Shortcut customization, wider keyboard/focus/screen-reader acceptance, text scaling, light/system themes, and graph/ref accessibility remain open. Diff +/- markers continue to provide non-color information.
 
 **Done when:** Provide discoverable platform-appropriate shortcuts for commit, stage/unstage, search, repository switching, and operation controls; add shortcut customization and a command palette. Audit focus order, accessible names, screen-reader descriptions of graph/ref state, text scaling, contrast, and light/system themes. Test core workflows without a mouse. See [GitKraken's command palette](https://help.gitkraken.com/gitkraken-desktop/command-palette/) and [keyboard shortcuts](https://help.gitkraken.com/gitkraken-desktop/keyboard-shortcuts/).
 
 ### TD-29 — Harden performance, path handling, and workflow regression coverage
 
-**Status:** Caches, a table model, workers, and service tests exist; scale and end-to-end guarantees remain limited.
+**Status:** Foundations implemented; broader scale and native acceptance remain open.
 
-**Evidence:** `HistoryView._load_more()` increases the total limit, reruns the history prefix, and replaces model rows rather than fetching only a new page. Status and affected-file parsing use line-delimited output rather than NUL-delimited paths. `tests/test_worker_pool.py` covers `ImmediateWorkerPool`; commit-operation tests mostly verify command construction. The test suite passes despite the disconnected partial-staging UI.
+**Evidence:** Stable-tip history pagination fetches only new pages and caps the view at 5,000 rows; caches are bounded; Git output/diff rendering use explicit 2 MB / 10,000-line limits; affected-file parsing is NUL-delimited with literal pathspecs; root/first-parent merge cases and real GUI workflows have regression coverage; the Qt filter deprecation is removed. The repeatable 5,000-commit Linux benchmark covers initial page, next page, layout, and traced Python peak. Larger branching graphs, non-UTF-8 paths, network filesystems, total GUI/process memory, and representative native OS/Git versions remain unaccepted.
 
 **Done when:** Establish large-repository latency/memory budgets, avoid repeated full-prefix history loading, bound caches and diff rendering, and parse arbitrary valid Git paths safely. Add focused GUI-to-real-repository tests for staged-side selection, partial staging, new-branch publish, conflict continuation, actual threaded callbacks, and recovery. Cover Unicode/tab/newline filenames, linked worktrees, empty/root/merge commits, and representative OS/Git versions. Resolve the Qt filter deprecation before updating to an incompatible release.
 
 ### TD-30 — Make logs, errors, and saved settings dependable
 
-**Status:** An operation panel, local crash reports, and versioned settings exist; diagnostic/recovery coverage is incomplete.
+**Status:** Foundations and cross-process settings coordination implemented; broader actionable-error UX remains open.
 
-**Evidence:** Git command errors include command arguments and remote failures expose stderr; there is no centralized sanitization layer. Some history failures are converted to empty lists, hiding the difference between no results and a failed query. `SettingsStore.save()` writes directly to the settings file; malformed JSON recovery is not implemented. Existing settings tests explicitly expect rejection of a non-object payload.
+**Evidence:** `SettingsStore` uses atomic fsynced replacement with a previous-good backup, preserves corrupt files, recovers startup, and surfaces a notice; fresh preference writes preserve recents. Bounded rotating logs record command duration/exit status through centralized redaction, and the app exports an opt-in sanitized local support ZIP. History errors remain visible rather than becoming empty results. Settings use stable sidecar OS locks, field-level changes from loaded snapshots, granular preference updates, and transactional recent-repository changes. Real multi-process tests cover concurrent writes on Linux; native Windows execution remains pending. Retry/details guidance is not yet consistent across all feature errors.
 
 **Done when:** Distinguish errors from empty states, provide actionable retry/details, and offer a sanitized support bundle with bounded logs and command timing. Redact credentials embedded in URLs/output. Save settings atomically and recover from damaged settings without preventing startup. Test secrets in diagnostics, interrupted writes, and invalid configuration. Preserve local-only crash reporting.
 
@@ -351,7 +378,11 @@ These are product decisions rather than prerequisites for a useful local Git cli
 1. **Restore confidence in visible controls — delivered for supported workflows:** TD-01, TD-02, TD-03, and the TD-05 stuck-button failure path. See the implementation-progress table for coverage and remaining boundaries.
 2. **Make operations dependable — implementation delivered; platform/provider acceptance pending:** TD-04 through TD-10, with session isolation implemented first and TD-11 recovery added before expanding destructive actions. See the delivery-step-2 table for supported boundaries and remaining acceptance checks.
 3. **Ship an installable daily driver — workflows and Linux build delivered; release acceptance pending:** TD-12, TD-13, TD-14, the amend corrections in TD-18, and foundational work from TD-29/TD-30.
-4. **Expand review and history editing:** TD-15 through TD-22, then improve multi-repository work and accessibility with TD-27/TD-28.
-5. **Choose audience-specific breadth:** Worktrees, submodules, LFS, and provider collaboration (TD-23 through TD-26), then selected P3 items.
+4. **Build shared P2 contracts — delivered in batch 1:** durable drafts, the action registry, and cross-process settings coordination.
+5. **Expand review and investigation — TD-15/TD-20 delivered in batch 1:** next TD-19, followed by the remaining TD-18 composer work and TD-21/TD-22 file/patch/stash workflows.
+6. **Add complex editing:** TD-17 conflict editing, then TD-16 interactive history editing.
+7. **Expand repository scope:** TD-23/TD-27 worktrees and tabs, TD-24 submodules, and TD-25 LFS.
+8. **Add optional collaboration deliberately:** define the GitHub-first TD-26 integration, then implement the proposed provider workflow.
+9. **Complete accessibility and keep hardening:** TD-28, with TD-29/TD-30 acceptance work applied continuously across every slice, then selected P3 items.
 
 For each completed item, verify the user can finish the workflow through the actual UI, include appropriate regression coverage, update the changelog, and revise this backlog. A service method alone is not completion of a desktop feature.
