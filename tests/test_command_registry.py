@@ -85,7 +85,7 @@ def test_shared_menu_and_keyboard_stage_then_commit_real_changes(
     tree = window._repository_view._working_tree
     tree._unstaged_list.setCurrentRow(0)
     action = window._commands.action("stage")
-    menu = next(m for m in window.findChildren(QMenu) if m.title() == "Working Tree")
+    menu = next(m for m in window.findChildren(QMenu) if m.title() == "File Status")
     assert action in menu.actions()
     assert action in window.actions()
     window.activateWindow()

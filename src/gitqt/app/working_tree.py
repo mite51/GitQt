@@ -278,6 +278,49 @@ class WorkingTreeViewModel:
         verb = "Staged" if stage else "Unstaged"
         return WorkingTreeActionResult(True, f"{verb} {completed} file(s).")
 
+    def discard_files(self, paths: list[str]) -> WorkingTreeActionResult:
+        if self.state.repository_path is None:
+            return WorkingTreeActionResult(False, "No repository is loaded.")
+        eligible = {entry.path for entry in self.state.entries if entry.unstaged}
+        selected = list(dict.fromkeys(path for path in paths if path in eligible))
+        if not selected:
+            return WorkingTreeActionResult(False, "Select files with unstaged changes.")
+        try:
+            backups = self._status_service.discard_files(self.state.repository_path, selected)
+        except Exception as exc:
+            message = exc.result.stderr.strip() if isinstance(exc, GitCommandFailure) else str(exc)
+            return WorkingTreeActionResult(False, message)
+        finally:
+            self._refresh_after_change(selected_path=None)
+        return WorkingTreeActionResult(
+            True,
+            f"Discarded {len(selected)} file(s). Recovery backups: {', '.join(backups)}",
+        )
+
+    def add_ignore_rule(self, path: str, rule_kind: str) -> WorkingTreeActionResult:
+        if self.state.repository_path is None:
+            return WorkingTreeActionResult(False, "No repository is loaded.")
+        try:
+            rule = self._status_service.add_ignore_rule(
+                self.state.repository_path, path, rule_kind=rule_kind
+            )
+        except Exception as exc:
+            return WorkingTreeActionResult(False, str(exc))
+        finally:
+            self._refresh_after_change(selected_path=None)
+        return WorkingTreeActionResult(True, f"Added {rule} to .gitignore.")
+
+    def stop_lfs_tracking(self, path: str) -> WorkingTreeActionResult:
+        if self.state.repository_path is None:
+            return WorkingTreeActionResult(False, "No repository is loaded.")
+        try:
+            self._status_service.stop_lfs_tracking(self.state.repository_path, path)
+        except Exception as exc:
+            return WorkingTreeActionResult(False, str(exc))
+        finally:
+            self._refresh_after_change(selected_path=path)
+        return WorkingTreeActionResult(True, "Stopped Git LFS tracking for the selected path rule.")
+
     def change_hunk(
         self,
         hunk_index: int,

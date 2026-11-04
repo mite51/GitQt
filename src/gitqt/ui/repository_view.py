@@ -48,6 +48,7 @@ class RepositoryView(QWidget):
     """Full repository workspace: sidebar + content tabs + operation log."""
 
     back_to_dashboard = Signal()
+    tab_metadata_changed = Signal()
 
     def __init__(self, services: AppServices, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -58,6 +59,10 @@ class RepositoryView(QWidget):
         self._remote_operation_busy = False
         self._operation_action_busy = False
         self._comparison_dialogs = []
+        # Kept as an invisible compatibility sentinel for operation-state tests;
+        # repository navigation now lives in MainWindow's tab bar.
+        self._back_btn = QPushButton(self)
+        self._back_btn.hide()
 
         # View models (created per-repository load)
         self._working_tree_vm: WorkingTreeViewModel | None = None
@@ -76,6 +81,32 @@ class RepositoryView(QWidget):
         self._observe_timer.timeout.connect(self._observe_repository)
         self._observe_timer.start()
         QApplication.instance().applicationStateChanged.connect(self._on_application_state_changed)
+
+    @property
+    def repository_path(self) -> str:
+        return self._repository_path or ""
+
+    @property
+    def active_branch(self) -> str:
+        return self._branch_label.text() or "unknown"
+
+    def export_view_state(self) -> dict:
+        return {
+            "mode": self._tabs.currentIndex(),
+            "workspace_splitter": self._body_splitter.sizes(),
+            "file_status_splitter": self._working_tree._main_splitter.sizes(),
+        }
+
+    def restore_view_state(self, state: dict) -> None:
+        mode = state.get("mode", 0)
+        if isinstance(mode, int) and 0 <= mode < self._tabs.count():
+            self._tabs.setCurrentIndex(mode)
+        workspace = state.get("workspace_splitter")
+        if isinstance(workspace, list) and all(isinstance(value, int) for value in workspace):
+            self._body_splitter.setSizes(workspace)
+        file_status = state.get("file_status_splitter")
+        if isinstance(file_status, list) and all(isinstance(value, int) for value in file_status):
+            self._working_tree._main_splitter.setSizes(file_status)
 
     @Slot(Qt.ApplicationState)
     def _on_application_state_changed(self, state):
@@ -154,7 +185,7 @@ class RepositoryView(QWidget):
 
     def _set_busy(self, busy: bool) -> None:
         self._cancel_btn.setVisible(busy and self._jobs.cancellable)
-        for widget in (self._sidebar, self._history_view, self._back_btn, self._settings_btn):
+        for widget in (self._sidebar, self._history_view, self._settings_btn):
             widget.setEnabled(not busy)
         self._set_remote_buttons_enabled(not busy)
         if busy:
@@ -211,21 +242,6 @@ class RepositoryView(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 6, 12, 6)
 
-        self._back_btn = QPushButton("← Dashboard")
-        self._back_btn.setFlat(True)
-        self._back_btn.setStyleSheet(
-            "QPushButton { color: #89b4fa; border: none; font-weight: 500; padding: 4px 8px; }"
-            "QPushButton:hover { text-decoration: underline; }"
-        )
-        self._back_btn.clicked.connect(self.back_to_dashboard)
-        header_layout.addWidget(self._back_btn)
-
-        self._repo_name_label = QLabel("Repository")
-        self._repo_name_label.setFont(ui_font(13, bold=True))
-        header_layout.addWidget(self._repo_name_label)
-
-        header_layout.addStretch()
-
         self._branch_label = QLabel()
         self._branch_label.setStyleSheet(
             f"color: {ACCENT.name()}; background: rgba(137,180,250,20); "
@@ -256,6 +272,8 @@ class RepositoryView(QWidget):
         self._push_btn.clicked.connect(lambda: self._configure_transfer("push"))
         header_layout.addWidget(self._push_btn)
 
+        header_layout.addStretch()
+
         self._settings_btn = QToolButton()
         self._settings_btn.setText("\u2699")
         self._settings_btn.setToolTip("Settings")
@@ -275,28 +293,28 @@ class RepositoryView(QWidget):
         root.addWidget(header)
 
         # Main body: sidebar | content
-        body_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._body_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         self._sidebar = Sidebar(
             split_branch_paths=self._services.settings.split_branch_paths,
         )
-        body_splitter.addWidget(self._sidebar)
+        self._body_splitter.addWidget(self._sidebar)
 
         # Center: tab widget
         self._tabs = QTabWidget()
         self._working_tree = WorkingTreeView()
         self._history_view = HistoryView()
         self._history_view.set_row_alpha(self._services.settings.history_row_alpha)
-        self._tabs.addTab(self._working_tree, "Working Tree")
+        self._tabs.addTab(self._working_tree, "File Status")
         self._tabs.addTab(self._history_view, "History")
         self._tabs.currentChanged.connect(self._on_tab_changed)
-        body_splitter.addWidget(self._tabs)
+        self._body_splitter.addWidget(self._tabs)
 
-        body_splitter.setStretchFactor(0, 0)
-        body_splitter.setStretchFactor(1, 1)
-        body_splitter.setSizes([220, 800])
+        self._body_splitter.setStretchFactor(0, 0)
+        self._body_splitter.setStretchFactor(1, 1)
+        self._body_splitter.setSizes([220, 800])
 
-        root.addWidget(body_splitter, stretch=1)
+        root.addWidget(self._body_splitter, stretch=1)
 
         self._cancel_btn = QPushButton("Cancel Transfer")
         self._cancel_btn.clicked.connect(self._jobs.cancel)
@@ -419,11 +437,6 @@ class RepositoryView(QWidget):
         if self._repository_path is None or self._jobs.busy:
             return
 
-        from pathlib import Path
-
-        repo_name = Path(self._repository_path).name or self._repository_path
-        self._repo_name_label.setText(repo_name)
-
         self._refresh_branch_header()
         self._refresh_working_tree()
         self._refresh_sidebar_branches()
@@ -459,6 +472,7 @@ class RepositoryView(QWidget):
         if snapshot is None:
             self._branch_label.setText("unknown")
             self._tracking_label.setText("")
+            self.tab_metadata_changed.emit()
             return
 
         tracking = snapshot.tracking
@@ -470,12 +484,26 @@ class RepositoryView(QWidget):
         else:
             self._branch_label.setText("(no branch)")
 
-        parts = []
-        if tracking.ahead:
-            parts.append(f"↑{tracking.ahead}")
-        if tracking.behind:
-            parts.append(f"↓{tracking.behind}")
-        self._tracking_label.setText(" ".join(parts))
+        if tracking.is_detached_head:
+            status_text = "Detached HEAD"
+        elif not tracking.upstream:
+            status_text = "No upstream"
+        elif not tracking.ahead and not tracking.behind:
+            status_text = "Up to date"
+        else:
+            parts = []
+            if tracking.ahead:
+                parts.append(f"↑{tracking.ahead}")
+            if tracking.behind:
+                parts.append(f"↓{tracking.behind}")
+            status_text = "  ".join(parts)
+        self._tracking_label.setText(status_text)
+        self._tracking_label.setToolTip(
+            f"{tracking.ahead} commit(s) to push; {tracking.behind} commit(s) to pull"
+            if tracking.upstream
+            else status_text
+        )
+        self.tab_metadata_changed.emit()
 
     def _force_refresh_working_tree(self) -> None:
         if self._services.status is not None and self._repository_path is not None:

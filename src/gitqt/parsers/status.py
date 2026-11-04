@@ -22,6 +22,7 @@ class WorkingTreeEntry:
     staged: bool
     unstaged: bool
     conflicted: bool = False
+    lfs_tracked: bool = False
 
 
 def parse_porcelain_status(stdout: str) -> list[WorkingTreeEntry]:

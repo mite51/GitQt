@@ -22,7 +22,7 @@ DEFAULT_UI_FONT_FAMILY = "Inter"
 
 @dataclass(slots=True, weakref_slot=True)
 class AppSettings:
-    settings_version: int = 4
+    settings_version: int = 5
     recent_repositories: list[str] = field(default_factory=list)
     git_executable: str | None = None
     last_repository: str | None = None
@@ -32,6 +32,9 @@ class AppSettings:
     split_branch_paths: bool = True
     history_row_alpha: float = 0.5
     ui_font_family: str = DEFAULT_UI_FONT_FAMILY
+    open_repository_tabs: list[str] = field(default_factory=list)
+    active_repository_tab: str | None = None
+    repository_view_states: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 _LOCKS = defaultdict(RLock)
@@ -73,7 +76,7 @@ def locked_file(path: Path):
 class SettingsStore:
     """Load and save application settings as JSON."""
 
-    CURRENT_VERSION = 4
+    CURRENT_VERSION = 5
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -122,6 +125,11 @@ class SettingsStore:
                 migrated.get("ui_font_family"),
                 default=DEFAULT_UI_FONT_FAMILY,
             ),
+            open_repository_tabs=self._coerce_string_list(migrated.get("open_repository_tabs")),
+            active_repository_tab=self._coerce_optional_string(
+                migrated.get("active_repository_tab")
+            ),
+            repository_view_states=self._coerce_view_states(migrated.get("repository_view_states")),
         )
 
     def _recover(self) -> AppSettings:
@@ -220,6 +228,8 @@ class SettingsStore:
             migrated = self._migrate_v2_to_v3(migrated)
         if source_version < 4:
             migrated = self._migrate_v3_to_v4(migrated)
+        if source_version < 5:
+            migrated = self._migrate_v4_to_v5(migrated)
         migrated["settings_version"] = self.CURRENT_VERSION
         return migrated
 
@@ -246,6 +256,17 @@ class SettingsStore:
         return migrated
 
     @staticmethod
+    def _migrate_v4_to_v5(payload: dict[str, Any]) -> dict[str, Any]:
+        migrated = dict(payload)
+        last = migrated.get("last_repository")
+        migrated.setdefault(
+            "open_repository_tabs", [last] if isinstance(last, str) and last else []
+        )
+        migrated.setdefault("active_repository_tab", last if isinstance(last, str) else None)
+        migrated.setdefault("repository_view_states", {})
+        return migrated
+
+    @staticmethod
     def _coerce_font_family(value: Any, *, default: str) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -260,6 +281,16 @@ class SettingsStore:
         if not isinstance(value, list):
             return []
         return [item for item in value if isinstance(item, str) and item]
+
+    @staticmethod
+    def _coerce_view_states(value: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            key: state
+            for key, state in value.items()
+            if isinstance(key, str) and isinstance(state, dict)
+        }
 
     @staticmethod
     def _coerce_bool(value: Any, *, default: bool) -> bool:

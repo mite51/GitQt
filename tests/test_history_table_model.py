@@ -263,6 +263,38 @@ def test_history_view_multi_branch_selection_persists(_qt_app) -> None:
         view.deleteLater()
 
 
+def test_history_selection_highlights_selected_branch_lane(_qt_app) -> None:
+    from gitqt.services.worker_pool import ImmediateWorkerPool
+    from gitqt.ui.history_view import HistoryTableModel, HistoryView
+
+    rows = [
+        _row(hash_short="merge", refs=("main",), head_ref="main"),
+        _row(hash_short="main-parent"),
+        _row(hash_short="feature", refs=("feature/a",)),
+        _row(hash_short="base"),
+    ]
+    rows[0].parents = ("main-parent", "feature")
+    rows[1].parents = ("base",)
+    rows[2].parents = ("base",)
+
+    view = HistoryView()
+    view.set_worker_pool(ImmediateWorkerPool())
+    try:
+        view.model.set_rows(rows)
+        source_index = view.model.index(2, HistoryTableModel.COLUMN_GRAPH)
+        selected_layout = view.model.layout_at(2)
+        assert selected_layout is not None
+        assert view.model.max_lanes() > 1
+
+        view._table.setCurrentIndex(view._proxy.mapFromSource(source_index))
+        _qt_app.processEvents()
+
+        assert view._graph_delegate is not None
+        assert view._graph_delegate.highlighted_color_lane == selected_layout.node_color_lane
+    finally:
+        view.deleteLater()
+
+
 def test_history_view_load_repository_preserves_selected_refs_for_same_path(
     _qt_app,
 ) -> None:
@@ -523,6 +555,72 @@ def test_history_view_set_row_alpha_restyles_table(_qt_app) -> None:
         assert sheet_a != sheet_b
         assert "rgba(30, 30, 46, 26)" in sheet_a  # round(0.1 * 255) == 26
         assert "rgba(30, 30, 46, 230)" in sheet_b  # round(0.9 * 255) == 230
+    finally:
+        view.deleteLater()
+
+
+def test_history_details_content_does_not_resize_splitter(_qt_app) -> None:
+    from gitqt.services.worker_pool import ImmediateWorkerPool
+    from gitqt.ui.history_view import HistoryView
+
+    view = HistoryView()
+    view.set_worker_pool(ImmediateWorkerPool())
+    view.resize(1100, 650)
+    view.show()
+    _qt_app.processEvents()
+    try:
+        initial = view._splitter.sizes()
+        assert abs(initial[0] - initial[1]) <= 2
+
+        view._splitter.setSizes([1080, 0])
+        _qt_app.processEvents()
+        assert view._splitter.sizes()[1] == 0
+
+        view._splitter.setSizes([1070, 10])
+        _qt_app.processEvents()
+        assert view._splitter.sizes()[1] <= 10
+
+        view._splitter.setSizes([720, 360])
+        _qt_app.processEvents()
+        expected = view._splitter.sizes()
+        row = _row(
+            hash_short="details1",
+            author="An author with a deliberately long display name",
+            summary="A deliberately long commit message " * 20,
+            refs=("feature/a-very-long-branch-name",),
+        )
+
+        view._show_details(row)
+        _qt_app.processEvents()
+        assert view._splitter.sizes() == expected
+        assert view._details_branch.text() == "Branch: feature/a-very-long-branch-name"
+
+        view._show_details(None)
+        _qt_app.processEvents()
+        assert view._splitter.sizes() == expected
+    finally:
+        view.close()
+        view.deleteLater()
+
+
+def test_history_details_show_inherited_branch_for_selected_commit(_qt_app) -> None:
+    from gitqt.services.worker_pool import ImmediateWorkerPool
+    from gitqt.ui.history_view import HistoryTableModel, HistoryView
+
+    rows = [
+        _row(hash_short="tip", refs=("main",), head_ref="main"),
+        _row(hash_short="parent"),
+    ]
+    rows[0].parents = ("parent",)
+    view = HistoryView()
+    view.set_worker_pool(ImmediateWorkerPool())
+    try:
+        view.model.set_rows(rows)
+        source = view.model.index(1, HistoryTableModel.COLUMN_MESSAGE)
+        view._table.setCurrentIndex(view._proxy.mapFromSource(source))
+        _qt_app.processEvents()
+
+        assert view._details_branch.text() == "Branch: main"
     finally:
         view.deleteLater()
 

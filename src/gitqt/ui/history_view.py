@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStyle,
     QStyledItemDelegate,
@@ -78,6 +79,7 @@ from gitqt.ui.theme import (
     FG_DIM,
     FG_SECONDARY,
     GRAPH_COLORS,
+    branch_selection_outline_color,
     mono_font,
     ui_font,
 )
@@ -448,6 +450,17 @@ class GraphDelegate(QStyledItemDelegate):
     # rather than a sweeping curve.
     _CORNER_RADIUS = 6
 
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._highlighted_color_lane: int | None = None
+
+    @property
+    def highlighted_color_lane(self) -> int | None:
+        return self._highlighted_color_lane
+
+    def set_highlighted_color_lane(self, lane: int | None) -> None:
+        self._highlighted_color_lane = lane
+
     def paint(
         self,
         painter: QPainter,
@@ -507,9 +520,15 @@ class GraphDelegate(QStyledItemDelegate):
             if (seg.kind == "in" and seg.from_lane == seg.to_lane and seg.from_lane != node_lane)
         }
         drawn_passthrough: set[int] = set()
+        outline_color = branch_selection_outline_color(
+            widget.palette() if widget is not None else None
+        )
 
         for segment in layout.segments:
             color = GRAPH_COLORS[segment.color_lane % len(GRAPH_COLORS)]
+            segment_outline = (
+                outline_color if segment.color_lane == self._highlighted_color_lane else None
+            )
             if (
                 segment.kind == "in"
                 and segment.from_lane == segment.to_lane
@@ -519,7 +538,15 @@ class GraphDelegate(QStyledItemDelegate):
                     continue
                 drawn_passthrough.add(segment.from_lane)
                 x = self._lane_x(rect, segment.from_lane)
-                self._draw_segment(painter, x, top_extend, x, bottom_extend, color)
+                self._draw_segment(
+                    painter,
+                    x,
+                    top_extend,
+                    x,
+                    bottom_extend,
+                    color,
+                    outline_color=segment_outline,
+                )
                 continue
             if segment.kind == "in":
                 self._draw_segment(
@@ -530,6 +557,7 @@ class GraphDelegate(QStyledItemDelegate):
                     center_y,
                     color,
                     kind="in",
+                    outline_color=segment_outline,
                 )
             elif segment.kind == "out":
                 self._draw_segment(
@@ -540,6 +568,7 @@ class GraphDelegate(QStyledItemDelegate):
                     bottom_extend,
                     color,
                     kind="out",
+                    outline_color=segment_outline,
                 )
 
         node_color = GRAPH_COLORS[layout.node_color_lane % len(GRAPH_COLORS)]
@@ -556,7 +585,18 @@ class GraphDelegate(QStyledItemDelegate):
             is_selected and bool(payload.inherited_ref)
         )
         if should_draw_leader:
-            self._draw_leader(painter, rect.left(), node_x, center_y, node_color)
+            self._draw_leader(
+                painter,
+                rect.left(),
+                node_x,
+                center_y,
+                node_color,
+                outline_color=(
+                    outline_color
+                    if layout.node_color_lane == self._highlighted_color_lane
+                    else None
+                ),
+            )
 
         if payload.show_avatar:
             self._draw_avatar_node(
@@ -594,6 +634,7 @@ class GraphDelegate(QStyledItemDelegate):
         color: QColor,
         *,
         kind: str = "in",
+        outline_color: QColor | None = None,
     ) -> None:
         pen = QPen(color, self._LINE_WIDTH)
         if x1 == x2:
@@ -601,6 +642,11 @@ class GraphDelegate(QStyledItemDelegate):
             # are fully opaque -- round caps fade out under antialiasing
             # and were leaving faint gaps at the row-to-row seam.
             pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            if outline_color is not None:
+                outline_pen = QPen(outline_color, self._LINE_WIDTH + 3)
+                outline_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+                painter.setPen(outline_pen)
+                painter.drawLine(x1, y1, x2, y2)
             painter.setPen(pen)
             painter.drawLine(x1, y1, x2, y2)
             return
@@ -615,8 +661,6 @@ class GraphDelegate(QStyledItemDelegate):
         # pixelated bend.
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen)
-
         sign_x = 1 if x2 > x1 else -1
         radius = min(
             self._CORNER_RADIUS,
@@ -649,6 +693,13 @@ class GraphDelegate(QStyledItemDelegate):
                 corner_y + radius,
             )
             path.lineTo(x2, y2)
+        if outline_color is not None:
+            outline_pen = QPen(outline_color, self._LINE_WIDTH + 3)
+            outline_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(outline_pen)
+            painter.drawPath(path)
+        painter.setPen(pen)
         painter.drawPath(path)
 
     def _draw_leader(
@@ -658,14 +709,22 @@ class GraphDelegate(QStyledItemDelegate):
         node_x: int,
         center_y: int,
         color: QColor,
+        *,
+        outline_color: QColor | None = None,
     ) -> None:
+        end_x = node_x - self._AVATAR_SIZE // 2 - 1
+        if outline_color is not None:
+            outline_pen = QPen(outline_color, self._LINE_WIDTH + 3)
+            outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(outline_pen)
+            painter.drawLine(left, center_y, end_x, center_y)
         pen = QPen(color, self._LINE_WIDTH)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         # Draw from the very left edge of the graph column to just before the
         # avatar node. The pill is drawn flush to the right side of the branch
         # column, so this reads as a continuous leader.
-        painter.drawLine(left, center_y, node_x - self._AVATAR_SIZE // 2 - 1, center_y)
+        painter.drawLine(left, center_y, end_x, center_y)
 
     def _draw_lane_dot(
         self,
@@ -1102,8 +1161,13 @@ class HistoryView(QWidget):
         self._branch_menu_filter_text: str = ""
         self._settings = QSettings(self._SETTINGS_ORG, self._SETTINGS_APP)
         self._branch_pill_delegate: BranchPillDelegate | None = None
+        self._graph_delegate: GraphDelegate | None = None
         self._pill_elide_left: bool = self._read_pill_elide_left_setting()
         self._pill_elide_left_action: Any = None
+        self._pending_details_splitter_sizes: list[int] | None = None
+        self._details_splitter_restore = QTimer(self)
+        self._details_splitter_restore.setSingleShot(True)
+        self._details_splitter_restore.timeout.connect(self._restore_details_splitter_sizes)
 
         self._build_ui()
         self._restore_column_state()
@@ -1161,9 +1225,8 @@ class HistoryView(QWidget):
         self._table = QTableView()
         self._table.setModel(self._proxy)
         self._table.setMouseTracking(True)
-        self._table.setItemDelegateForColumn(
-            HistoryTableModel.COLUMN_GRAPH, GraphDelegate(self._table)
-        )
+        self._graph_delegate = GraphDelegate(self._table)
+        self._table.setItemDelegateForColumn(HistoryTableModel.COLUMN_GRAPH, self._graph_delegate)
         self._branch_pill_delegate = BranchPillDelegate(self._table)
         self._table.setItemDelegateForColumn(
             HistoryTableModel.COLUMN_BRANCH, self._branch_pill_delegate
@@ -1205,9 +1268,16 @@ class HistoryView(QWidget):
         self._splitter.addWidget(self._table)
 
         self._details_panel = self._build_details_panel()
+        self._details_panel.setMinimumWidth(0)
+        self._details_panel.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
+        )
         self._splitter.addWidget(self._details_panel)
-        self._splitter.setStretchFactor(0, 3)
+        self._splitter.setCollapsible(1, True)
+        self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 1)
+        self._splitter.setSizes([500, 500])
 
         layout.addWidget(self._splitter, stretch=1)
 
@@ -1221,6 +1291,11 @@ class HistoryView(QWidget):
         self._details_hash.setFont(mono_font(11))
         self._details_hash.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         details_layout.addWidget(self._details_hash)
+
+        self._details_branch = QLabel()
+        self._details_branch.setProperty("subheading", True)
+        self._details_branch.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        details_layout.addWidget(self._details_branch)
 
         self._details_author = QLabel()
         self._details_author.setProperty("subheading", True)
@@ -1730,7 +1805,10 @@ class HistoryView(QWidget):
         if self._history_service is None or self._repository_path is None:
             self._copy_to_clipboard(short_hash)
             return
-        row = next((row for row in self._model.rows if row.commit_short_hash == short_hash), None)
+        row = next(
+            (row for row in self._model.rows() if row.commit_short_hash == short_hash),
+            None,
+        )
         if row is not None and row.commit_full_hash:
             self._copy_to_clipboard(row.commit_full_hash)
             return
@@ -1772,7 +1850,8 @@ class HistoryView(QWidget):
         # viewport is non-auto-fill so a transparent main bg drops through to
         # the parent; setting the item bg per-row guarantees both base and
         # alternate rows get their share of the alpha-blended fill.
-        self._table.setStyleSheet("""
+        self._table.setStyleSheet(
+            """
             QTableView {
                 background: transparent;
                 alternate-background-color: rgba(26, 26, 46, %(a)d);
@@ -1781,7 +1860,9 @@ class HistoryView(QWidget):
             QTableView::item { padding: 3px 6px; background: rgba(30, 30, 46, %(a)d); }
             QTableView::item:alternate { background: rgba(26, 26, 46, %(a)d); }
             QTableView::item:selected { background: rgba(69, 71, 90, 220); }
-            """ % {"a": a})
+            """
+            % {"a": a}
+        )
         viewport = self._table.viewport()
         if viewport is not None:
             viewport.setAutoFillBackground(False)
@@ -1856,8 +1937,8 @@ class HistoryView(QWidget):
         selected = self._table.currentIndex()
         source = self._proxy.mapToSource(selected)
         previous = (
-            self._model.rows[source.row()].commit_full_hash
-            if source.isValid() and source.row() < len(self._model.rows)
+            self._model.rows()[source.row()].commit_full_hash
+            if source.isValid() and source.row() < len(self._model.rows())
             else None
         )
         scroll = self._table.verticalScrollBar().value()
@@ -1897,7 +1978,7 @@ class HistoryView(QWidget):
             return
         # Read only the next page against immutable tips, preserving graph continuity
         # by rebuilding the inexpensive in-memory layout over the combined rows.
-        if len(self._model.rows) >= 5000:
+        if len(self._model.rows()) >= 5000:
             self._has_more = False
             self._details_empty.setText(
                 "History is limited to 5,000 rows. Narrow the branch filter to continue."
@@ -1906,8 +1987,8 @@ class HistoryView(QWidget):
             return
         service, path = self._history_service, self._repository_path
         tips = getattr(self, "_history_tips", ())
-        skip = len(self._model.rows)
-        previous = list(self._model.rows)
+        skip = len(self._model.rows())
+        previous = self._model.rows()
         self._loading = True
 
         def apply(rows):
@@ -1941,15 +2022,39 @@ class HistoryView(QWidget):
         self._jobs.invalidate_channel("commit_files")
         self._jobs.invalidate_channel("commit_diff")
         if not current.isValid():
+            self._set_graph_highlight(None)
             self._show_details(None)
             return
         source_index = self._proxy.mapToSource(current)
         row = self._model.row_at(source_index.row())
         if row is None:
+            self._set_graph_highlight(None)
             self._show_details(None)
             return
-        self._show_details(row)
+        layout = self._model.layout_at(source_index.row())
+        highlighted_lane = (
+            layout.node_color_lane if layout is not None and self._model.max_lanes() > 1 else None
+        )
+        self._set_graph_highlight(highlighted_lane)
+        payload = self._model.data(
+            self._model.index(source_index.row(), HistoryTableModel.COLUMN_GRAPH),
+            GRAPH_ROW_ROLE,
+        )
+        branch_name = (
+            payload.primary_ref or payload.inherited_ref
+            if isinstance(payload, HistoryGraphPayload)
+            else None
+        )
+        self._show_details(row, branch_name=branch_name)
         self.commit_selected.emit(row.commit_short_hash)
+
+    def _set_graph_highlight(self, color_lane: int | None) -> None:
+        if self._graph_delegate is None:
+            return
+        self._graph_delegate.set_highlighted_color_lane(color_lane)
+        viewport = self._table.viewport()
+        if viewport is not None:
+            viewport.update()
 
     def _on_filter_input_changed(self, text: str) -> None:
         normalized = text.lower().strip()
@@ -1972,10 +2077,17 @@ class HistoryView(QWidget):
     # Details panel
     # -----------------------------------------------------------------------
 
-    def _show_details(self, row: HistoryGraphRow | None) -> None:
+    def _show_details(
+        self,
+        row: HistoryGraphRow | None,
+        *,
+        branch_name: str | None = None,
+    ) -> None:
+        splitter_sizes = self._splitter.sizes()
         has_details = row is not None
         for widget in (
             self._details_hash,
+            self._details_branch,
             self._details_author,
             self._details_date,
             self._details_refs,
@@ -1985,6 +2097,7 @@ class HistoryView(QWidget):
         ):
             widget.setVisible(has_details)
         self._details_empty.setVisible(not has_details)
+        self._preserve_details_splitter_sizes(splitter_sizes)
 
         if row is None:
             self._current_commit_hash = None
@@ -1994,6 +2107,8 @@ class HistoryView(QWidget):
             return
 
         self._details_hash.setText(f"Commit: {row.commit_short_hash}")
+        resolved_branch = branch_name or row.head_ref or next(iter(row.refs), None)
+        self._details_branch.setText(f"Branch: {resolved_branch or '(no branch)'}")
         self._details_author.setText(f"Author: {row.author}")
         if row.age:
             self._details_date.setText(f"Date: {row.date}  \u2022  {row.age}")
@@ -2015,6 +2130,21 @@ class HistoryView(QWidget):
 
         self._current_commit_hash = row.commit_full_hash or row.commit_short_hash
         self._load_commit_files(self._current_commit_hash)
+
+    def _preserve_details_splitter_sizes(self, sizes: list[int]) -> None:
+        """Keep content changes from renegotiating the details pane width."""
+
+        if len(sizes) != 2 or not all(size >= 0 for size in sizes):
+            return
+        self._pending_details_splitter_sizes = list(sizes)
+        self._splitter.setSizes(sizes)
+        self._details_splitter_restore.start(0)
+
+    def _restore_details_splitter_sizes(self) -> None:
+        sizes = self._pending_details_splitter_sizes
+        self._pending_details_splitter_sizes = None
+        if sizes is not None:
+            self._splitter.setSizes(sizes)
 
     def _load_commit_files(self, commit_hash: str) -> None:
         self._details_files.clear()

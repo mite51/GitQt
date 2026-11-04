@@ -56,6 +56,27 @@ GRAPH_COLORS = [
 ]
 
 
+def palette_is_dark(palette: QPalette | None = None) -> bool:
+    """Return whether the active palette uses a dark window background."""
+
+    if palette is None:
+        app = QApplication.instance()
+        palette = app.palette() if app is not None else QPalette()
+    return palette.color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def active_branch_color(palette: QPalette | None = None) -> QColor:
+    """High-contrast current-branch color for dark and light palettes."""
+
+    return QColor("#f9e2af") if palette_is_dark(palette) else QColor("#8a5d00")
+
+
+def branch_selection_outline_color(palette: QPalette | None = None) -> QColor:
+    """Contrasting outline used to identify a selected history lane."""
+
+    return QColor("#fff4c2") if palette_is_dark(palette) else QColor("#5c4300")
+
+
 # ---------------------------------------------------------------------------
 # Fonts
 # ---------------------------------------------------------------------------
@@ -270,7 +291,7 @@ QTabWidget::pane {
     top: -1px;
 }
 QTabBar::tab {
-    background: #313244;
+    background: #1e1e2e;
     color: #a6adc8;
     border: 1px solid #45475a;
     border-bottom: none;
@@ -280,9 +301,9 @@ QTabBar::tab {
     margin-right: 2px;
 }
 QTabBar::tab:selected {
-    background: #1e1e2e;
-    color: #cdd6f4;
-    border-color: #45475a;
+    background: #89b4fa;
+    color: #11111b;
+    border-color: #89b4fa;
     font-weight: 600;
 }
 QTabBar::tab:hover:!selected {

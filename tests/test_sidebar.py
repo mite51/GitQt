@@ -101,7 +101,7 @@ def test_sidebar_splits_local_branches_by_slash_when_enabled(_qt_app) -> None:
         assert "abc" in labels
         assert "def" in labels
         # Head indicator preserved on main
-        assert "* main" in labels
+        assert "main" in labels
     finally:
         sidebar.deleteLater()
 
@@ -156,5 +156,116 @@ def test_sidebar_toggle_split_branch_paths_rebuilds_tree(_qt_app) -> None:
         rebuilt = _collect_tree(sidebar._local_root)
         assert "feature" in rebuilt
         assert "abc" in rebuilt
+    finally:
+        sidebar.deleteLater()
+
+
+def test_sidebar_selects_active_branch_and_shows_tracking_counts(_qt_app) -> None:
+    from PySide6.QtCore import Qt
+
+    from gitqt.ui.sidebar import Sidebar
+
+    sidebar = Sidebar(split_branch_paths=True)
+    try:
+        snapshot = BranchSnapshot(
+            local_branches=[
+                LocalBranchRef(
+                    name="feature/current",
+                    upstream="origin/feature/current",
+                    is_head=True,
+                    commit_short_hash="abc",
+                )
+            ],
+            remote_branches=[],
+            tracking=BranchTrackingStatus(
+                branch_name="feature/current",
+                upstream="origin/feature/current",
+                ahead=2,
+                behind=1,
+                is_detached_head=False,
+                head_commit_short_hash="abc",
+            ),
+        )
+
+        sidebar.set_branch_snapshot(snapshot)
+
+        selected = sidebar._tree.currentItem()
+        assert selected is not None
+        assert selected.text(0) == "current  ↑2  ↓1"
+        assert selected.data(0, Qt.ItemDataRole.UserRole) == (
+            "local_branch",
+            "feature/current",
+        )
+        from gitqt.ui.theme import active_branch_color
+
+        active_color = active_branch_color(sidebar._tree.palette())
+        assert selected.foreground(0).color() == active_color
+        from PySide6.QtGui import QPalette
+        from PySide6.QtWidgets import QStyleOptionViewItem
+
+        option = QStyleOptionViewItem()
+        option.widget = sidebar._tree
+        sidebar._tree.itemDelegate().initStyleOption(
+            option,
+            sidebar._tree.indexFromItem(selected),
+        )
+        assert option.palette.color(QPalette.ColorRole.HighlightedText) == active_color
+        assert selected.parent().isExpanded()
+    finally:
+        sidebar.deleteLater()
+
+
+def test_branch_highlight_colors_adapt_to_dark_and_light_palettes(_qt_app) -> None:
+    from PySide6.QtGui import QColor, QPalette
+
+    from gitqt.ui.theme import active_branch_color, branch_selection_outline_color
+
+    dark = QPalette()
+    dark.setColor(QPalette.ColorRole.Window, QColor("#1e1e2e"))
+    light = QPalette()
+    light.setColor(QPalette.ColorRole.Window, QColor("#f5f5f5"))
+
+    assert active_branch_color(dark) == QColor("#f9e2af")
+    assert active_branch_color(light) == QColor("#8a5d00")
+    assert branch_selection_outline_color(dark) == QColor("#fff4c2")
+    assert branch_selection_outline_color(light) == QColor("#5c4300")
+
+
+def test_sidebar_preserves_user_selection_during_same_branch_refresh(_qt_app) -> None:
+    from gitqt.ui.sidebar import Sidebar
+
+    sidebar = Sidebar(split_branch_paths=False)
+    try:
+        snapshot = BranchSnapshot(
+            local_branches=[
+                LocalBranchRef(
+                    name="main",
+                    upstream="origin/main",
+                    is_head=True,
+                    commit_short_hash="abc",
+                ),
+                LocalBranchRef(
+                    name="topic",
+                    upstream=None,
+                    is_head=False,
+                    commit_short_hash="def",
+                ),
+            ],
+            remote_branches=[],
+            tracking=BranchTrackingStatus(
+                branch_name="main",
+                upstream="origin/main",
+                ahead=0,
+                behind=0,
+                is_detached_head=False,
+                head_commit_short_hash="abc",
+            ),
+        )
+        sidebar.set_branch_snapshot(snapshot)
+        sidebar._tree.setCurrentItem(sidebar._local_root.child(1))
+
+        sidebar.set_branch_snapshot(snapshot)
+
+        assert sidebar._tree.currentItem().text(0) == "topic"
     finally:
         sidebar.deleteLater()

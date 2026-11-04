@@ -70,7 +70,7 @@ The gap-closure delivery passes **328 tests**, with **3 native Windows tests ski
 
 | Area | Linux | Windows | macOS |
 | --- | --- | --- | --- |
-| Source test suite | 375 passed; 3 native Windows tests skipped locally | CI configured; current branch run pending | CI configured; current branch run pending |
+| Source test suite | 380 passed; 3 native Windows tests skipped locally | CI configured; current branch run pending | CI configured; current branch run pending |
 | Portable application | Built and smoke-tested locally outside the checkout | Build recipe/CI only; native artifact acceptance pending | Build recipe/CI only; native artifact acceptance pending |
 | Installer | Isolated-root install, same-version reinstall, packaged smoke, removal, and retained-settings check passed locally; old-to-new and clean-machine checks pending | Inno Setup recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending | DMG recipe and native lifecycle CI gate; current branch execution and clean-machine checks pending |
 | Real HTTPS/SSH provider authentication and platform credential storage | Pending | Pending | Pending |
@@ -207,7 +207,7 @@ This section was reconciled against commit `0945cdf` after the **328 passed, 3 n
 - [ ] **TD-21 / TD-22:** deliver file/ignore/restore/launcher and patch exchange, with an explicit binary-patch policy, together with stash inspection, selective stash/restore, inclusion/state controls, conflict handling, and stash-to-branch. Share diff selection and recovery contracts; service work can be split between file/patch and stash slices.
 - [ ] **TD-17:** build the integrated conflict editor on the existing persistent operation lifecycle, with side semantics, editable result validation, staging, and explicit fallbacks.
 - [ ] **TD-16:** add previewed interactive rebase and ordered multi-commit actions after comparison/conflict contracts stabilize, including published-history and merge/mainline behavior.
-- [ ] **TD-23 / TD-27:** pair worktree lifecycle with repository tabs/session restoration so shared repositories, drafts, refresh, and busy state have one ownership model. Worktree service and tab/session UI can be independent until integration.
+- [ ] **TD-23 / TD-27:** repository tabs and core session restoration are delivered. Pair the remaining worktree lifecycle with tab ownership, shared repositories, drafts, refresh, and busy state; add named workspaces/favorites only with demonstrated need.
 - [ ] **TD-24:** add submodule status and lifecycle UI, preserving gitlink boundaries and nested-repository safety.
 - [ ] **TD-25:** add LFS dependency/pointer/pattern detection, setup and track/untrack, transfer visibility, locks, and a separate migration workflow.
 - [ ] **TD-26:** define the GitHub-first provider integration before implementation, covering authentication, enterprise endpoints, PR/review/build workflows, and provider-optional local operation.
@@ -274,6 +274,8 @@ Useful independent divisions are: shared state/settings; compare/diff; history i
 
 **Done when:** Search Git history independently of displayed pages, support paths/dates/authors/full hashes, show search/loading scope, and populate ref choices from the complete ref list. Add rename-aware file history and blame with navigation to the originating commit. See [GitKraken's file history and blame workflow](https://help.gitkraken.com/gitkraken-desktop/diff/).
 
+The File Status context-menu design deliberately leaves **Log Selected** and **Blame Selected** out until this item is implemented; unfinished commands are tracked here rather than exposed as disabled UI.
+
 ### TD-20 — Improve diff presentation and commit-inspection edge cases
 
 **Status:** Implemented for bounded text review and explicit binary/image/encoding fallback.
@@ -284,9 +286,9 @@ Useful independent divisions are: shared state/settings; compare/diff; history i
 
 ### TD-21 — Add ignore rules, file actions, and patch exchange
 
-**Status:** Not implemented beyond existing staging, recoverable discard, and external diff foundations.
+**Status:** Core File Status actions implemented; patch exchange and revision restore remain open.
 
-**Evidence:** `StatusService` and `parsers.patch` support internal partial-stage/discard patches, but there is no ignore-rule editor, tracked/ignored explanation, editor/file-manager launcher, chosen-revision restore, or user-facing patch preview/import/export workflow.
+**Evidence:** The File Status context menu now opens files and containing folders, copies absolute paths, launches the external diff tool, stages/unstages, and performs recoverable whole-file discard. Ignore actions append exact-name, extension, or root-relative path rules to the root `.gitignore` without staging it. Conflict files expose the configured merge tool. Chosen-revision restore, ignored/tracked explanations, custom actions, and user-facing patch preview/import/export remain open.
 
 **Done when:** Ignore a file/pattern through `.gitignore` or local excludes; explain ignored/tracked state; open a file in an editor or file manager; restore a file from a chosen revision; and preview/import/export patches. Define whether binary patches are supported. Keep destructive behavior consistent with TD-01 and TD-11. Patch exchange is also covered by [GitKraken's diff workflow](https://help.gitkraken.com/gitkraken-desktop/diff/).
 
@@ -316,9 +318,9 @@ Useful independent divisions are: shared state/settings; compare/diff; history i
 
 ### TD-25 — Add Git LFS detection and management
 
-**Status:** Not implemented; configured Git filters may work transparently.
+**Status:** Initial detection and untrack action implemented; broader LFS management remains open.
 
-**Evidence:** There is no LFS service, dependency/pointer/pattern detection, setup guidance, track/untrack/lock controls, migration workflow, or LFS-specific transfer state in the current source.
+**Evidence:** Working-tree refresh detects files with the `filter=lfs` attribute. Their context menu can stop the matching LFS tracking rule through Git LFS and reports setup guidance when Git LFS is unavailable. Pointer-versus-content display, track/setup/lock actions, migration, and LFS-specific transfer state remain open.
 
 **Done when:** Detect the LFS dependency and tracked patterns, distinguish pointer files from fetched content, offer install/setup guidance and track/untrack actions, and display fetch/pull/push progress/errors. Support locks where available, with a separate explicit workflow for history migration. See [GitKraken's LFS workflow](https://help.gitkraken.com/gitkraken-desktop/git-lfs/).
 
@@ -332,9 +334,9 @@ Useful independent divisions are: shared state/settings; compare/diff; history i
 
 ### TD-27 — Add repository tabs, workspaces, and complete session restoration
 
-**Status:** Durable isolated drafts implemented; tabs, workspaces, and wider session restoration remain open.
+**Status:** Repository tabs and core session restoration implemented; named workspaces and favorites remain open.
 
-**Evidence:** `MainWindow` still reuses one `RepositoryView`; `RecentRepositoriesService` keeps a flat list capped at 20. Working Tree/History are views within that repository. Repository/worktree drafts now persist across restarts and retain conflicting edits from other instances. Repository tabs/groups/favorites and full tab/view/panel/selection restoration remain absent.
+**Evidence:** `MainWindow` owns one independent `RepositoryView` per draggable, closeable tab. The add dialog covers recent/open/clone/initialize paths, duplicate opens focus the existing tab, and missing saved paths retain warning tabs with locate/retry/remove actions. Tab order, active repository, File Status/History mode, panel sizes, and repository-specific drafts restore across launches. Named groups/favorites/search and selection/scroll restoration remain absent by design; volatile selections refresh from Git instead.
 
 **Done when:** Open multiple repository tabs/windows, favorite/group/search repositories, and restore open tabs, active view, panel sizes, selections, and repository-specific commit drafts. Prevent a draft from one repository carrying into another. Show useful dashboard state such as current branch, local changes, and ahead/behind counts without blocking startup. Depends on TD-06.
 
@@ -381,7 +383,7 @@ These are product decisions rather than prerequisites for a useful local Git cli
 4. **Build shared P2 contracts — delivered in batch 1:** durable drafts, the action registry, and cross-process settings coordination.
 5. **Expand review and investigation — TD-15/TD-20 delivered in batch 1:** next TD-19, followed by the remaining TD-18 composer work and TD-21/TD-22 file/patch/stash workflows.
 6. **Add complex editing:** TD-17 conflict editing, then TD-16 interactive history editing.
-7. **Expand repository scope:** TD-23/TD-27 worktrees and tabs, TD-24 submodules, and TD-25 LFS.
+7. **Expand repository scope:** build TD-23 worktrees on the delivered TD-27 tab/session foundation, then TD-24 submodules and the remaining TD-25 LFS workflows.
 8. **Add optional collaboration deliberately:** define the GitHub-first TD-26 integration, then implement the proposed provider workflow.
 9. **Complete accessibility and keep hardening:** TD-28, with TD-29/TD-30 acceptance work applied continuously across every slice, then selected P3 items.
 

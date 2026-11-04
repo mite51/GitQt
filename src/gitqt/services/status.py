@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import time
 from dataclasses import dataclass
@@ -59,7 +60,24 @@ class StatusService:
         result = self._runner.run(
             ["status", "--porcelain", "-z", "--untracked-files=all"], cwd=repository_path
         )
-        snapshot = WorkingTreeSnapshot(parse_porcelain_status(result.stdout))
+        entries = parse_porcelain_status(result.stdout)
+        if entries:
+            try:
+                attributes = self._runner.run(
+                    ["check-attr", "-z", "filter", "--", *(entry.path for entry in entries)],
+                    cwd=repository_path,
+                    env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
+                ).stdout.split("\0")
+            except Exception:
+                attributes = []
+            lfs_paths = {
+                attributes[index]
+                for index in range(0, len(attributes) - 2, 3)
+                if attributes[index + 1] == "filter" and attributes[index + 2] == "lfs"
+            }
+            for entry in entries:
+                entry.lfs_tracked = entry.path in lfs_paths
+        snapshot = WorkingTreeSnapshot(entries)
         self._working_tree_cache[key] = (self._monotonic() + self._cache_ttl_seconds, snapshot)
         return snapshot
 
@@ -87,6 +105,92 @@ class StatusService:
                 cwd=repository_path,
                 env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
             )
+        self.invalidate_repository(repository_path)
+
+    def discard_files(self, repository_path: str | Path, file_paths: list[str]) -> list[str]:
+        """Discard whole-file worktree changes after retaining local recovery copies."""
+        root = Path(repository_path).resolve()
+        unique = list(dict.fromkeys(file_paths))
+        backups: list[str] = []
+        tracked: list[str] = []
+        untracked: list[str] = []
+        for file_path in unique:
+            candidate = root / file_path
+            if candidate.is_symlink() or not candidate.resolve().is_relative_to(root):
+                raise ValueError(f"Cannot discard an unsafe path: {file_path}")
+            listed = self._runner.run(
+                ["ls-files", "-z", "--", file_path],
+                cwd=root,
+                env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
+            )
+            backups.append(self._backup_worktree_file(root, file_path))
+            (tracked if listed.stdout else untracked).append(file_path)
+        if tracked:
+            self._runner.run(
+                ["restore", "--worktree", "--", *tracked],
+                cwd=root,
+                env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
+            )
+        for file_path in untracked:
+            candidate = root / file_path
+            if candidate.is_dir():
+                shutil.rmtree(candidate)
+            else:
+                candidate.unlink(missing_ok=True)
+        self.invalidate_repository(root)
+        return backups
+
+    def add_ignore_rule(
+        self, repository_path: str | Path, file_path: str, *, rule_kind: str
+    ) -> str:
+        path = Path(file_path)
+        if rule_kind == "filename":
+            rule = path.name
+        elif rule_kind == "extension":
+            if not path.suffix:
+                raise ValueError("This file has no extension to ignore.")
+            rule = f"*{path.suffix}"
+        elif rule_kind == "path":
+            rule = "/" + path.as_posix().lstrip("/")
+        else:
+            raise ValueError("Unsupported ignore rule.")
+        ignore = Path(repository_path) / ".gitignore"
+        existing = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+        lines = existing.splitlines()
+        if rule not in lines:
+            with ignore.open("a", encoding="utf-8") as output:
+                if existing and not existing.endswith("\n"):
+                    output.write("\n")
+                output.write(rule + "\n")
+        self.invalidate_repository(repository_path)
+        return rule
+
+    def stop_lfs_tracking(self, repository_path: str | Path, file_path: str) -> None:
+        check = self._runner.run(
+            ["check-attr", "filter", "--", file_path],
+            cwd=repository_path,
+            env_overrides={"GIT_LITERAL_PATHSPECS": "1"},
+        )
+        if not check.stdout.rstrip().endswith(": lfs"):
+            raise ValueError("The selected file is not tracked by Git LFS.")
+        try:
+            listing = self._runner.run(["lfs", "track"], cwd=repository_path).stdout
+            patterns = []
+            for line in listing.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("Listing ") or " (" not in stripped:
+                    continue
+                pattern = stripped.rsplit(" (", 1)[0].strip().strip('"')
+                candidate = Path(file_path)
+                if candidate.match(pattern) or candidate.match(f"**/{pattern}"):
+                    patterns.append(pattern)
+            if not patterns:
+                raise ValueError("Git LFS did not report the active tracking rule.")
+            self._runner.run(["lfs", "untrack", patterns[-1]], cwd=repository_path)
+        except (FileNotFoundError, GitCommandFailure) as error:
+            raise ValueError(
+                "Git LFS is unavailable. Install Git LFS and run `git lfs install` first."
+            ) from error
         self.invalidate_repository(repository_path)
 
     def _staged_paths(self, repository_path: str | Path, file_path: str) -> list[str]:

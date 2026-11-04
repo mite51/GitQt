@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QModelIndex, Qt, Signal
+from PySide6.QtGui import QPainter, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QMenu,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -19,10 +24,54 @@ from gitqt.services.remote import RemoteInfo
 from gitqt.services.stash import StashEntry
 from gitqt.services.tag import TagInfo
 from gitqt.ui.theme import (
-    ACCENT,
     FG_SECONDARY,
+    active_branch_color,
     ui_font,
 )
+
+ACTIVE_BRANCH_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class _BranchItemDelegate(QStyledItemDelegate):
+    """Keep the current branch color visible through tree selection."""
+
+    def initStyleOption(self, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        super().initStyleOption(option, index)
+        if not index.data(ACTIVE_BRANCH_ROLE):
+            return
+        palette = option.widget.palette() if option.widget is not None else option.palette
+        color = active_branch_color(palette)
+        option.palette.setColor(QPalette.ColorRole.Text, color)
+        option.palette.setColor(QPalette.ColorRole.HighlightedText, color)
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        if not index.data(ACTIVE_BRANCH_ROLE):
+            super().paint(painter, option, index)
+            return
+
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        text = styled.text
+        styled.text = ""
+        widget = styled.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, styled, painter, widget)
+
+        text_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText,
+            styled,
+            widget,
+        )
+        visible_text = styled.fontMetrics.elidedText(
+            text,
+            styled.textElideMode,
+            text_rect.width(),
+        )
+        painter.save()
+        painter.setFont(styled.font)
+        painter.setPen(active_branch_color(widget.palette() if widget is not None else None))
+        painter.drawText(text_rect, styled.displayAlignment, visible_text)
+        painter.restore()
 
 
 class Sidebar(QWidget):
@@ -52,6 +101,7 @@ class Sidebar(QWidget):
 
         self._split_branch_paths = split_branch_paths
         self._latest_snapshot: BranchSnapshot | None = None
+        self._selected_head_name: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -59,6 +109,7 @@ class Sidebar(QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
+        self._tree.setItemDelegate(_BranchItemDelegate(self._tree))
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -126,6 +177,7 @@ class Sidebar(QWidget):
         self._remotes_root.setText(0, f"Remotes ({len(remotes)})")
 
     def clear_all(self) -> None:
+        self._selected_head_name = None
         for root in (
             self._local_root,
             self._remote_root,
@@ -179,35 +231,51 @@ class Sidebar(QWidget):
         if self._local_root is None or self._remote_root is None:
             return
 
+        selected = self._tree.currentItem()
+        selected_data = selected.data(0, Qt.ItemDataRole.UserRole) if selected is not None else None
+        rebuilt_items: dict[tuple[str, str], QTreeWidgetItem] = {}
         self._local_root.takeChildren()
         head_name = tracking.branch_name
+        active_item: QTreeWidgetItem | None = None
         for branch in local:
-            self._insert_local_branch(branch, head_name)
+            item = self._insert_local_branch(branch, tracking)
+            if item is not None:
+                rebuilt_items[("local_branch", branch.name)] = item
+            if branch.is_head:
+                active_item = item
 
         self._remote_root.takeChildren()
         for branch in remote:
-            self._insert_remote_branch(branch)
+            item = self._insert_remote_branch(branch)
+            if item is not None:
+                rebuilt_items[("remote_branch", branch.name)] = item
 
         self._local_root.setExpanded(True)
 
-        ahead_behind = ""
-        if tracking.branch_name and not tracking.is_detached_head:
-            parts = []
-            if tracking.ahead:
-                parts.append(f"\u2191{tracking.ahead}")
-            if tracking.behind:
-                parts.append(f"\u2193{tracking.behind}")
-            if parts:
-                ahead_behind = f"  ({' '.join(parts)})"
-        self._branches_root.setText(0, f"Branches{ahead_behind}")
+        self._branches_root.setText(0, "Branches")
+
+        item_to_select = None
+        if active_item is not None and self._selected_head_name != head_name:
+            item_to_select = active_item
+        elif isinstance(selected_data, tuple):
+            item_to_select = rebuilt_items.get(selected_data)
+
+        if item_to_select is not None:
+            parent = item_to_select.parent()
+            while parent is not None:
+                parent.setExpanded(True)
+                parent = parent.parent()
+            self._tree.setCurrentItem(item_to_select)
+            self._tree.scrollToItem(item_to_select)
+        self._selected_head_name = head_name
 
     def _insert_local_branch(
         self,
         branch: LocalBranchRef,
-        head_name: str | None,
-    ) -> None:
+        tracking: BranchTrackingStatus,
+    ) -> QTreeWidgetItem | None:
         if self._local_root is None:
-            return
+            return None
         segments = (
             branch.name.split("/")
             if self._split_branch_paths and "/" in branch.name
@@ -216,20 +284,32 @@ class Sidebar(QWidget):
         leaf = self._ensure_path(self._local_root, segments)
         label = segments[-1]
         if branch.is_head:
-            label = f"* {label}"
+            if branch.upstream:
+                if tracking.ahead or tracking.behind:
+                    parts = []
+                    if tracking.ahead:
+                        parts.append(f"↑{tracking.ahead}")
+                    if tracking.behind:
+                        parts.append(f"↓{tracking.behind}")
+                    label = f"{label}  {'  '.join(parts)}"
+                else:
+                    label = f"{label}  Up to date"
         leaf.setText(0, label)
         leaf.setData(0, Qt.ItemDataRole.UserRole, ("local_branch", branch.name))
+        leaf.setData(0, ACTIVE_BRANCH_ROLE, branch.is_head)
         if branch.is_head:
-            leaf.setForeground(0, ACCENT)
+            leaf.setForeground(0, active_branch_color(self._tree.palette()))
             leaf.setFont(0, ui_font(10, bold=True))
         if branch.upstream:
-            leaf.setToolTip(0, f"{branch.name} (tracks {branch.upstream})")
+            prefix = "Current branch: " if branch.is_head else ""
+            leaf.setToolTip(0, f"{prefix}{branch.name} (tracks {branch.upstream})")
         else:
-            leaf.setToolTip(0, branch.name)
+            leaf.setToolTip(0, f"Current branch: {branch.name}" if branch.is_head else branch.name)
+        return leaf
 
-    def _insert_remote_branch(self, branch: RemoteBranchRef) -> None:
+    def _insert_remote_branch(self, branch: RemoteBranchRef) -> QTreeWidgetItem | None:
         if self._remote_root is None:
-            return
+            return None
         segments = (
             branch.name.split("/")
             if self._split_branch_paths and "/" in branch.name
@@ -240,6 +320,7 @@ class Sidebar(QWidget):
         leaf.setData(0, Qt.ItemDataRole.UserRole, ("remote_branch", branch.name))
         leaf.setForeground(0, FG_SECONDARY)
         leaf.setToolTip(0, branch.name)
+        return leaf
 
     def _ensure_path(
         self,
@@ -304,7 +385,12 @@ class Sidebar(QWidget):
                 delete_action = menu.addAction(
                     f"Delete {ref}", lambda: self.branch_delete_requested.emit(ref)
                 )
-                delete_action.setEnabled(not item.text(0).startswith("*"))
+                current_branch = (
+                    self._latest_snapshot.tracking.branch_name
+                    if self._latest_snapshot is not None
+                    else None
+                )
+                delete_action.setEnabled(ref != current_branch)
             elif kind == "stash":
                 menu.addAction(f"Apply {ref}", lambda: self.stash_apply_requested.emit(ref))
                 menu.addAction(f"Pop {ref}", lambda: self.stash_pop_requested.emit(ref))

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -10,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -82,16 +86,11 @@ class WorkingTreeView(QWidget):
 
         # Top bar
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(8, 6, 8, 6)
-
-        top_label = QLabel("Working Tree")
-        top_label.setFont(ui_font(12, bold=True))
-        top_bar.addWidget(top_label)
-        top_bar.addStretch()
+        top_bar.setContentsMargins(8, 4, 8, 4)
 
         self._status_label = QLabel()
         self._status_label.setProperty("dim", True)
-        top_bar.addWidget(self._status_label)
+        top_bar.addWidget(self._status_label, stretch=1)
 
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setFixedHeight(26)
@@ -106,8 +105,8 @@ class WorkingTreeView(QWidget):
         # Left: file list panel
         file_panel = QWidget()
         file_layout = QVBoxLayout(file_panel)
-        file_layout.setContentsMargins(0, 0, 0, 0)
-        file_layout.setSpacing(4)
+        file_layout.setContentsMargins(6, 4, 6, 6)
+        file_layout.setSpacing(3)
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search files...")
@@ -136,61 +135,73 @@ class WorkingTreeView(QWidget):
         filter_row.addStretch()
         file_layout.addLayout(filter_row)
 
-        # Staged files
+        # Staged files: keep the actions next to the section they affect.
+        staged_header = QHBoxLayout()
+        staged_header.setContentsMargins(0, 2, 0, 0)
         self._staged_label = QLabel("  Staged")
         self._staged_label.setFont(ui_font(10, bold=True))
-        self._staged_label.setStyleSheet(f"color: {ACCENT.name()}; padding: 4px 6px;")
-        file_layout.addWidget(self._staged_label)
+        self._staged_label.setStyleSheet(f"color: {ACCENT.name()}; padding: 2px;")
+        staged_header.addWidget(self._staged_label)
+        staged_header.addStretch()
+        self._unstage_btn = QPushButton("Unstage")
+        self._unstage_btn.setFixedHeight(24)
+        self._unstage_btn.clicked.connect(self._unstage_selected)
+        staged_header.addWidget(self._unstage_btn)
+        self._unstage_all_btn = QPushButton("Unstage All")
+        self._unstage_all_btn.setFixedHeight(24)
+        self._unstage_all_btn.setToolTip("Unstage all files, including files hidden by filters.")
+        self._unstage_all_btn.clicked.connect(
+            lambda: self._change_files(stage=False, all_files=True)
+        )
+        staged_header.addWidget(self._unstage_all_btn)
+        file_layout.addLayout(staged_header)
 
         self._staged_list = QListWidget()
         self._staged_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._staged_list.setMaximumHeight(160)
+        self._staged_list.setSpacing(1)
         self._staged_list.currentItemChanged.connect(
             lambda current, _: self._on_file_selected(current)
+        )
+        self._staged_list.itemDoubleClicked.connect(lambda _item: self._unstage_selected())
+        self._staged_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._staged_list.customContextMenuRequested.connect(
+            lambda point: self._show_file_context_menu(self._staged_list, point, staged=True)
         )
         file_layout.addWidget(self._staged_list)
 
         # Unstaged files
+        unstaged_header = QHBoxLayout()
+        unstaged_header.setContentsMargins(0, 2, 0, 0)
         self._unstaged_label = QLabel("  Unstaged")
         self._unstaged_label.setFont(ui_font(10, bold=True))
-        self._unstaged_label.setStyleSheet(f"color: {WARNING.name()}; padding: 4px 6px;")
-        file_layout.addWidget(self._unstaged_label)
-
-        self._unstaged_list = QListWidget()
-        self._unstaged_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._unstaged_list.currentItemChanged.connect(
-            lambda current, _: self._on_file_selected(current)
-        )
-        file_layout.addWidget(self._unstaged_list)
-
-        # Stage/unstage buttons
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(6, 4, 6, 4)
-        action_row.setSpacing(6)
-
-        self._stage_btn = QPushButton("Stage Selected")
+        self._unstaged_label.setStyleSheet(f"color: {WARNING.name()}; padding: 2px;")
+        unstaged_header.addWidget(self._unstaged_label)
+        unstaged_header.addStretch()
+        self._stage_btn = QPushButton("Stage")
+        self._stage_btn.setFixedHeight(24)
         self._stage_btn.clicked.connect(self._stage_selected)
-        action_row.addWidget(self._stage_btn)
-
-        self._unstage_btn = QPushButton("Unstage Selected")
-        self._unstage_btn.clicked.connect(self._unstage_selected)
-        action_row.addWidget(self._unstage_btn)
-
-        file_layout.addLayout(action_row)
-        all_row = QHBoxLayout()
+        unstaged_header.addWidget(self._stage_btn)
         self._stage_all_btn = QPushButton("Stage All")
-        self._unstage_all_btn = QPushButton("Unstage All")
+        self._stage_all_btn.setFixedHeight(24)
         self._stage_all_btn.setToolTip(
             "Stage all changed files, including files hidden by filters."
         )
-        self._unstage_all_btn.setToolTip("Unstage all files, including files hidden by filters.")
         self._stage_all_btn.clicked.connect(lambda: self._change_files(stage=True, all_files=True))
-        self._unstage_all_btn.clicked.connect(
-            lambda: self._change_files(stage=False, all_files=True)
+        unstaged_header.addWidget(self._stage_all_btn)
+        file_layout.addLayout(unstaged_header)
+
+        self._unstaged_list = QListWidget()
+        self._unstaged_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._unstaged_list.setSpacing(1)
+        self._unstaged_list.currentItemChanged.connect(
+            lambda current, _: self._on_file_selected(current)
         )
-        all_row.addWidget(self._stage_all_btn)
-        all_row.addWidget(self._unstage_all_btn)
-        file_layout.addLayout(all_row)
+        self._unstaged_list.itemDoubleClicked.connect(lambda _item: self._stage_selected())
+        self._unstaged_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._unstaged_list.customContextMenuRequested.connect(
+            lambda point: self._show_file_context_menu(self._unstaged_list, point, staged=False)
+        )
+        file_layout.addWidget(self._unstaged_list)
 
         self._main_splitter.addWidget(file_panel)
 
@@ -663,6 +674,114 @@ class WorkingTreeView(QWidget):
 
     def _unstage_selected(self) -> None:
         self._change_files(stage=False)
+
+    def _show_file_context_menu(self, list_widget: QListWidget, point, *, staged: bool) -> None:
+        if self._view_model is None:
+            return
+        clicked = list_widget.itemAt(point)
+        if clicked is not None and not clicked.isSelected():
+            list_widget.clearSelection()
+            clicked.setSelected(True)
+            list_widget.setCurrentItem(clicked)
+        items = list_widget.selectedItems()
+        if not items:
+            return
+        paths = [item.data(Qt.ItemDataRole.UserRole) for item in items]
+        root = Path(self._view_model.state.repository_path or "")
+        entries = {entry.path: entry for entry in self._view_model.state.entries}
+        menu = QMenu(self)
+
+        open_action = menu.addAction("Open")
+        open_action.setEnabled(len(paths) == 1 and (root / paths[0]).exists())
+        open_action.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(root / paths[0])))
+        )
+        reveal = menu.addAction("Show in File Manager")
+        reveal.setEnabled(len(paths) == 1)
+        reveal.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str((root / paths[0]).parent)))
+        )
+        copy_path = menu.addAction("Copy Path")
+        copy_path.setEnabled(len(paths) == 1)
+        copy_path.triggered.connect(
+            lambda: QGuiApplication.clipboard().setText(str((root / paths[0]).resolve()))
+        )
+        menu.addSeparator()
+        external = menu.addAction("External Diff")
+        external.setEnabled(len(paths) == 1)
+        external.triggered.connect(self.external_diff_requested)
+        menu.addSeparator()
+
+        change = menu.addAction("Unstage" if staged else "Stage")
+        change.triggered.connect(self._unstage_selected if staged else self._stage_selected)
+        if not staged:
+            discard = menu.addAction("Discard…")
+            discard.triggered.connect(lambda: self._discard_files(paths))
+            ignore = menu.addMenu("Ignore")
+            exact = ignore.addAction("Ignore Exact Filename")
+            exact.triggered.connect(lambda: self._ignore_file(paths[0], "filename"))
+            extension = ignore.addAction("Ignore This Extension")
+            extension.setEnabled(len(paths) == 1 and bool(Path(paths[0]).suffix))
+            extension.triggered.connect(lambda: self._ignore_file(paths[0], "extension"))
+            path_rule = ignore.addAction("Ignore This Path")
+            path_rule.triggered.connect(lambda: self._ignore_file(paths[0], "path"))
+            ignore.setEnabled(len(paths) == 1)
+
+        if len(paths) == 1 and entries.get(paths[0]) and entries[paths[0]].lfs_tracked:
+            menu.addSeparator()
+            stop_lfs = menu.addAction("Stop LFS Tracking")
+            stop_lfs.triggered.connect(lambda: self._stop_lfs_tracking(paths[0]))
+
+        if any(entries.get(path) and entries[path].conflicted for path in paths):
+            menu.addSeparator()
+            resolve = menu.addMenu("Resolve Conflicts")
+            merge_tool = resolve.addAction("Open Merge Tool")
+            merge_tool.setEnabled(len(paths) == 1)
+            merge_tool.triggered.connect(self.external_merge_requested)
+
+        menu.exec(list_widget.viewport().mapToGlobal(point))
+
+    def _discard_files(self, paths: list[str]) -> None:
+        if self._view_model is None:
+            return
+        entries = {entry.path: entry for entry in self._view_model.state.entries}
+        untracked = [
+            path
+            for path in paths
+            if entries.get(path)
+            and not entries[path].staged
+            and entries[path].state == WorkingTreeState.UNTRACKED
+        ]
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Discard Unstaged Files")
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setText(f"Discard changes in {len(paths)} selected file(s)?")
+        explanation = "Tracked files will be restored to their staged or committed content."
+        if untracked:
+            explanation += " Untracked files will be permanently removed from the working tree."
+        dialog.setInformativeText(
+            explanation + " Local recovery backups are created before any file is changed."
+        )
+        dialog.setDetailedText("\n".join(paths))
+        dialog.setStandardButtons(
+            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel
+        )
+        dialog.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if dialog.exec() != QMessageBox.StandardButton.Discard:
+            return
+        self._run_model_action("Discard", lambda model: model.discard_files(paths))
+
+    def _ignore_file(self, path: str, rule_kind: str) -> None:
+        self._run_model_action(
+            "Ignore",
+            lambda model: model.add_ignore_rule(path, rule_kind),
+        )
+
+    def _stop_lfs_tracking(self, path: str) -> None:
+        self._run_model_action(
+            "Stop LFS Tracking",
+            lambda model: model.stop_lfs_tracking(path),
+        )
 
     def _change_files(self, *, stage: bool, all_files: bool = False) -> None:
         if self._view_model is None:
