@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, Qt, Signal
-from PySide6.QtGui import QPainter, QPalette
+from PySide6.QtCore import QMimeData, QModelIndex, Qt, Signal
+from PySide6.QtGui import QDrag, QPainter, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -30,6 +30,64 @@ from gitqt.ui.theme import (
 )
 
 ACTIVE_BRANCH_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class _BranchTree(QTreeWidget):
+    """Branch drops request an operation; they never move navigation items."""
+
+    branch_dropped = Signal(str, str)
+    MIME = "application/x-gitqt-local-branch"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+
+    def startDrag(self, _actions):
+        item = self.currentItem()
+        data = item.data(0, Qt.ItemDataRole.UserRole) if item else None
+        if not data or data[0] != "local_branch":
+            return
+        mime = QMimeData()
+        mime.setData(self.MIME, data[1].encode("utf-8"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+    def _drop_pair(self, event):
+        if event.source() is not self or not event.mimeData().hasFormat(self.MIME):
+            return None
+        item = self.itemAt(event.position().toPoint())
+        data = item.data(0, Qt.ItemDataRole.UserRole) if item else None
+        if not data or data[0] not in {"local_branch", "remote_branch"}:
+            return None
+        source = bytes(event.mimeData().data(self.MIME)).decode("utf-8")
+        kind, name = data
+        if (kind == "local_branch" and source == name) or name.endswith("/HEAD"):
+            return None
+        target = f"refs/{'heads' if kind == 'local_branch' else 'remotes'}/{name}"
+        return source, target
+
+    def dragEnterEvent(self, event):
+        if event.source() is self and event.mimeData().hasFormat(self.MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._drop_pair(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        pair = self._drop_pair(event)
+        if pair:
+            event.acceptProposedAction()
+            self.branch_dropped.emit(*pair)
+        else:
+            event.ignore()
 
 
 class _BranchItemDelegate(QStyledItemDelegate):
@@ -81,6 +139,7 @@ class Sidebar(QWidget):
     branch_checkout_requested = Signal(str)
     branch_create_requested = Signal()
     branch_delete_requested = Signal(str)
+    rebase_requested = Signal(str, str, bool)
     stash_apply_requested = Signal(str)
     stash_pop_requested = Signal(str)
     stash_drop_requested = Signal(str)
@@ -107,7 +166,8 @@ class Sidebar(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._tree = QTreeWidget()
+        self._tree = _BranchTree()
+        self._tree.branch_dropped.connect(self._branch_drop_menu)
         self._tree.setHeaderHidden(True)
         self._tree.setItemDelegate(_BranchItemDelegate(self._tree))
         self._tree.setRootIsDecorated(True)
@@ -404,9 +464,50 @@ class Sidebar(QWidget):
                     "Manage / Inspect…", lambda: self.manage_ref_requested.emit(kind, ref)
                 )
 
+            if kind in {"local_branch", "remote_branch"} and not ref.endswith("/HEAD"):
+                current = (
+                    self._latest_snapshot.tracking.branch_name
+                    if self._latest_snapshot is not None
+                    else None
+                )
+                target = f"refs/{'heads' if kind == 'local_branch' else 'remotes'}/{ref}"
+                menu.addSeparator()
+                if kind == "local_branch":
+                    menu.addAction(
+                        f"Rebase {ref}…", lambda: self.rebase_requested.emit(ref, "", False)
+                    )
+                    menu.addAction(
+                        f"Interactive rebase {ref}…",
+                        lambda: self.rebase_requested.emit(ref, "", True),
+                    )
+                if current and (kind != "local_branch" or current != ref):
+                    menu.addAction(
+                        f"Rebase {current} onto {ref}…",
+                        lambda: self.rebase_requested.emit(current, target, False),
+                    )
+                    menu.addAction(
+                        f"Interactive rebase {current} onto {ref}…",
+                        lambda: self.rebase_requested.emit(current, target, True),
+                    )
+
         if menu.actions():
             self._tree.viewport()
             menu.exec(self._tree.mapToGlobal(pos))
+
+    def _branch_drop_menu(self, source, target):
+        from PySide6.QtGui import QCursor
+
+        name = target.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+        menu = QMenu(self)
+        menu.addAction(
+            f"Rebase {source} onto {name}…",
+            lambda: self.rebase_requested.emit(source, target, False),
+        )
+        menu.addAction(
+            f"Interactive rebase {source} onto {name}…",
+            lambda: self.rebase_requested.emit(source, target, True),
+        )
+        menu.exec(QCursor.pos())
 
 
 def _find_group_child(parent: QTreeWidgetItem, label: str) -> QTreeWidgetItem | None:

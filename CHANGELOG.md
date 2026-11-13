@@ -5,6 +5,7 @@ All notable changes to `GitQt` should be documented in this file.
 ## Unreleased
 
 ### Added
+- Added branch and interactive rebase previews, sidebar right-click and branch drag-and-drop actions, and interactive rebase from history. Commits can be reordered, reworded, squashed, fixed up, or dropped. Rebase retains the original tip, validates checkout/ref/worktree state, and preserves edited messages through conflicts and app restarts. Added real-repository and UI regressions for these workflows.
 - Added read-only revision/merge-base/staged/worktree comparisons with complete ref choices, full commit messages, merge-parent selection, side-by-side/word highlighting, whitespace/context controls, search, change navigation, and explicit large/binary/encoding fallbacks. Existing partial staging patch semantics are unchanged.
 - Added durable repository/worktree commit drafts, background saving, navigation/close flushes, amend preservation, and conflict copies for concurrent edits. Successful Git commits remain successful if draft persistence subsequently fails.
 - Coordinated settings transactions across processes; stale preference dialogs and concurrent recent-repository updates preserve unrelated changes.

@@ -75,6 +75,12 @@ Discard backups are kept in `gitqt-discard-backups` inside the repository's actu
 
 The Working Tree panel shows the current merge, rebase, cherry-pick, or revert even after its last conflict is staged. Resolve files in your editor or configured merge tool, refresh, and stage the resolutions. Use **Continue** to finish. **Skip Commit** is available for rebase/cherry-pick/revert; **Abort** asks Git to return to the operation's starting state. Skip and abort require confirmation because resolution edits may be lost. GitQt rechecks the operation before acting and reports any Git failure.
 
+To rebase, right-click a local branch in the sidebar and choose **Rebase…** or **Interactive rebase…**, then choose its destination. You can also right-click a destination branch to rebase the current branch onto it, or drag a local branch onto a local or remote branch in the sidebar and choose either rebase mode. History commit menus offer both modes with the selected commit as the destination; that commit itself is excluded from the replay list.
+
+The rebase dialog previews the source, destination, and commits in replay order (oldest first). Interactive mode supports dragging commits or using **Move Up / Down**, editing full commit messages, squashing, fixing up, and dropping commits. Squash combines messages; fixup keeps the preceding message. Both require a preceding retained commit. Commit or stash changes, including untracked files, before starting. GitQt checks the preview again before writing and refuses a source branch checked out in another worktree. The source branch becomes the active checkout.
+
+Rebase rewrites history: coordinate before rebasing shared commits. The original branch tip is retained in **Recovery**. Interactive plans and edited messages survive conflicts and app restarts; resume with **Continue**, **Skip Commit**, or **Abort**. Plans are removed when the operation finishes through GitQt. Interactive rebase currently supports linear history; regular rebase flattens merge commits. Previews are limited to 500 commits, and commits that become empty during replay are retained.
+
 
 ## Setup and private repositories
 

@@ -346,6 +346,10 @@ class RepositoryView(QWidget):
         self._history_view.revert_commit_requested.connect(self._revert_commit)
         self._history_view.merge_commit_requested.connect(self._merge_commit_into_head)
         self._history_view.rebase_onto_commit_requested.connect(self._rebase_onto_commit)
+        self._history_view.interactive_rebase_requested.connect(
+            lambda target: self._open_rebase("", target, True)
+        )
+        self._sidebar.rebase_requested.connect(self._open_rebase)
         self._history_view.reset_to_commit_requested.connect(self._reset_to_commit)
         self._history_view.compare_commit_requested.connect(self._open_commit_comparison)
 
@@ -807,27 +811,38 @@ class RepositoryView(QWidget):
         self._run_command("Merge Commit", lambda: service.merge_commit(path, commit_hash))
 
     def _rebase_onto_commit(self, commit_hash: str) -> None:
-        if self._services.commit_operations is None or self._repository_path is None:
+        self._open_rebase("", commit_hash, False)
+
+    def _open_rebase(self, source: str = "", target: str = "", interactive=False) -> None:
+        if (
+            self._services.git_runner is None
+            or self._repository_path is None
+            or self._branch_snapshot is None
+            or self._jobs.busy
+        ):
             return
-        dialog = ConfirmationDialog(
-            title="Rebase Onto Commit",
-            body=(
-                f"Rebase the current branch onto {commit_hash}?\n\n"
-                "This rewrites history on the current branch. Do not rebase commits "
-                "that have already been pushed and shared."
-            ),
-            confirm_label="Rebase",
-            recovery_hint=(
-                "If conflicts occur, resolve and stage the files, then use Continue or "
-                "Abort in the Working Tree panel."
-            ),
-            danger=True,
+        from gitqt.ui.rebase_dialog import RebaseDialog
+
+        path = self._repository_path
+        dialog = RebaseDialog(
+            self._services.git_runner,
+            self._services.worker_pool,
+            path,
+            self._branch_snapshot,
+            source=source,
+            target=target,
+            interactive=interactive,
             parent=self,
         )
         if not dialog.exec():
             return
-        path, service = self._repository_path, self._services.commit_operations
-        self._run_command("Rebase Onto", lambda: service.rebase_onto(path, commit_hash))
+        preview, steps = dialog.preview, dialog.steps()
+        service = dialog.service
+
+        def completed(_result):
+            self._tabs.setCurrentWidget(self._working_tree)
+
+        self._run_command("Rebase", lambda: service.start(path, preview, steps), completed)
 
     def _reset_to_commit(self, commit_hash: str, mode_id: str) -> None:
         if self._services.commit_operations is None or self._repository_path is None:

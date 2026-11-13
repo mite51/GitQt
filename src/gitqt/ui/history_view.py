@@ -1102,6 +1102,7 @@ class HistoryView(QWidget):
     revert_commit_requested = Signal(str)
     merge_commit_requested = Signal(str)
     rebase_onto_commit_requested = Signal(str)
+    interactive_rebase_requested = Signal(str)
     reset_to_commit_requested = Signal(str, str)  # (commit_hash, mode)
 
     _SEARCH_DEBOUNCE_MS = 200
@@ -1749,6 +1750,12 @@ class HistoryView(QWidget):
 
         rebase_action = menu.addAction("Rebase current branch onto commit…")
         rebase_action.triggered.connect(emit_commit(self.rebase_onto_commit_requested))
+        interactive_action = menu.addAction("Interactive rebase current branch onto commit…")
+        interactive_action.triggered.connect(
+            lambda _checked=False: self.interactive_rebase_requested.emit(
+                row.commit_full_hash or row.commit_short_hash
+            )
+        )
 
         reset_menu = menu.addMenu("Reset current branch to this commit")
         for label, mode_id in (("Soft", "soft"), ("Mixed", "mixed"), ("Hard", "hard")):
@@ -1850,8 +1857,7 @@ class HistoryView(QWidget):
         # viewport is non-auto-fill so a transparent main bg drops through to
         # the parent; setting the item bg per-row guarantees both base and
         # alternate rows get their share of the alpha-blended fill.
-        self._table.setStyleSheet(
-            """
+        self._table.setStyleSheet("""
             QTableView {
                 background: transparent;
                 alternate-background-color: rgba(26, 26, 46, %(a)d);
@@ -1860,9 +1866,7 @@ class HistoryView(QWidget):
             QTableView::item { padding: 3px 6px; background: rgba(30, 30, 46, %(a)d); }
             QTableView::item:alternate { background: rgba(26, 26, 46, %(a)d); }
             QTableView::item:selected { background: rgba(69, 71, 90, 220); }
-            """
-            % {"a": a}
-        )
+            """ % {"a": a})
         viewport = self._table.viewport()
         if viewport is not None:
             viewport.setAutoFillBackground(False)

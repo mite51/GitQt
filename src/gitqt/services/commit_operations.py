@@ -143,12 +143,23 @@ class CommitOperationsService:
                 return CommitOperationResult(
                     False, "Resolve and stage every conflicted file first."
                 )
+            env = {"GIT_EDITOR": "true", "GIT_SEQUENCE_EDITOR": "true"}
+            if operation == "rebase":
+                from gitqt.services.rebase import RebaseService
+
+                env.update(RebaseService(self._runner).editor_environment(repository_path))
             self._runner.run(
                 [operation, f"--{action}"],
                 cwd=repository_path,
-                env_overrides={"GIT_EDITOR": "true", "GIT_SEQUENCE_EDITOR": "true"},
+                env_overrides=env,
                 timeout_seconds=120,
             )
+            if operation == "rebase":
+                if (
+                    ConflictService(self._runner).detect_conflicts(repository_path).operation
+                    is None
+                ):
+                    RebaseService(self._runner).cleanup_plan(repository_path)
         except GitCommandFailure as exc:
             return CommitOperationResult(False, exc.result.stderr.strip() or str(exc))
         except (GitCommandLaunchError, GitCommandTimeoutError) as exc:
